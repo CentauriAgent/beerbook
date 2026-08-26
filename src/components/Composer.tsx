@@ -285,24 +285,32 @@ export function Composer() {
         {/* Photo */}
         <div>
           <Label className="mb-2 block font-serif text-amber-900">Beer photo *</Label>
-          <label className="flex aspect-video w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-300 bg-amber-100/50 text-amber-800 hover:bg-amber-100">
-            {upload.isPending ? 'Uploading… ⏳' : previewImage ? '✅ Photo uploaded — tap to change' : (
-              <>
-                <Camera size={20} /> Add a photo
-              </>
+          <div className="flex items-center gap-3">
+            {previewImage && (
+              <img src={previewImage} alt="Beer photo preview" className="h-12 w-12 rounded-lg border border-amber-300 object-cover" />
             )}
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              disabled={upload.isPending}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onPhoto(f);
-                e.target.value = '';
-              }}
-            />
-          </label>
+            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-amber-400 bg-amber-100 px-3 py-1.5 text-sm text-amber-900 transition hover:bg-amber-200">
+              {upload.isPending ? 'Uploading… ⏳' : previewImage ? '📷 Change photo' : (
+                <>
+                  <Camera size={16} /> Add photo
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={upload.isPending}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onPhoto(f);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            {!previewImage && !upload.isPending && (
+              <span className="text-xs text-amber-700/70">Required — a beer page needs its photo</span>
+            )}
+          </div>
           {photoError && (
             <p className="mt-1 text-sm font-medium text-red-700">⚠️ Upload failed: {photoError} — pick the photo again. You can’t publish until it uploads.</p>
           )}
