@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { LoginArea } from '@/components/auth/LoginArea';
 import { StarRating } from '@/components/StarRating';
+import { RatingInput } from '@/components/RatingInput';
 import { BeerPage } from '@/components/BeerPage';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useNostrPublish } from '@/hooks/useNostrPublish';
@@ -486,7 +487,7 @@ export function Composer() {
         {/* Rating */}
         <div>
           <Label className="mb-2 block font-serif text-amber-900">Rating *</Label>
-          <StarRating value={rating} onChange={setRating} size={32} />
+          <RatingInput value={rating} onChange={setRating} />
         </div>
 
         {/* Flavors */}
