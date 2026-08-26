@@ -115,34 +115,37 @@ async function fetchCatalogBeers(count) {
   if (key) headers['authorization'] = `Basic ${Buffer.from(`${key}:`).toString('base64')}`;
 
   const perPage = 50;
-  const pages = Math.ceil(count / perPage);
   const beers = [];
-  for (let p = 1; p <= pages; p++) {
-    const url = `${CATALOG_BASE}?sort=rating&order=desc&per_page=${perPage}&page=${p}`;
-    console.log(`catalog.beer: GET page ${p}…`);
+  let cursor = null;
+  while (beers.length < count) {
+    const want = Math.min(perPage, count - beers.length);
+    const url = `https://api.catalog.beer/beer?count=${want}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    console.log(`catalog.beer: GET ${beers.length ? `+${want}` : 'first page'}…`);
     const res = await fetch(url, { headers });
     if (res.status === 401 || res.status === 403) {
       throw new Error('catalog.beer: API key required/invalid (HTTP ' + res.status + ')');
     }
     if (!res.ok) throw new Error(`catalog.beer: HTTP ${res.status}`);
     const json = await res.json();
-    const items = Array.isArray(json) ? json : (json.data ?? []);
+    const items = json.data ?? [];
     for (const b of items) {
       beers.push({
         name: b.name,
-        brewery: typeof b.brewery === 'string' ? b.brewery : (b.brewery?.name ?? ''),
-        style: typeof b.style === 'string' ? b.style : (b.style?.name ?? undefined),
+        brewery: b.brewer?.name ?? (typeof b.brewer === 'string' ? b.brewer : ''),
+        style: b.style ?? undefined,
         abv: b.abv ?? undefined,
         ibu: b.ibu ?? undefined,
         description: b.description || undefined,
-        image: b.image_url ?? b.image ?? undefined,
+        image: undefined, // list endpoint has no image; detail fetch optional later
         source: 'catalog.beer',
       });
     }
     console.log(`  +${items.length} (total ${beers.length})`);
-    if (items.length < perPage) break;
+    if (!json.has_more || !json.next_cursor || items.length === 0) break;
+    cursor = json.next_cursor;
     await sleep(1100); // ~1 req/sec
   }
+  return beers.slice(0, count);
   return beers.slice(0, count);
 }
 
@@ -157,8 +160,12 @@ async function publishProfile() {
   const template = { kind: 0, content: JSON.stringify(profile), tags: [['client', 'beerbook']], created_at: Math.floor(Date.now() / 1000) };
   const event = finalizeEvent(template, sk);
   if (dryRun) { console.log('[dry-run] kind 0:', JSON.stringify(event, null, 2)); return; }
-  const pubs = await Promise.allSettled(RELAYS.map((r) => pool.publish([r], event)));
-  pubs.forEach((p, i) => console.log(`kind 0 → ${RELAYS[i]}: ${p.status === 'fulfilled' ? 'ok' : p.reason?.message ?? 'failed'}`));
+  try {
+    const pubs = await Promise.allSettled(RELAYS.map((r) => pool.publish([r], event)));
+    pubs.forEach((p, i) => console.log(`kind 0 → ${RELAYS[i]}: ${p.status === 'fulfilled' ? 'ok' : p.reason?.message ?? 'failed'}`));
+  } catch (err) {
+    console.log(`kind 0 publish warning: ${err?.message ?? err} (continuing)`);
+  }
 }
 
 async function main() {
