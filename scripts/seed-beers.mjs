@@ -44,6 +44,12 @@ function catalogKey() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Relay sockets can emit async rejections (e.g. 'relay overloaded'); never let
+// one crash the whole seed run.
+process.on('unhandledRejection', (err) => {
+  console.warn(`[warn] async relay error (continuing): ${err?.message ?? err}`);
+});
+
 function beerSlug(name, brewery) {
   return `${brewery} ${name}`.toLowerCase().normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -182,8 +188,22 @@ async function main() {
     beers = starterBeers(Math.min(COUNT, 30));
   }
 
+  // Skip beers beerbot has already published (idempotent re-runs)
+  let existing = new Set();
+  if (!dryRun) {
+    try {
+      const seen = await Promise.any(RELAYS.map((r) =>
+        pool.querySync([{ kinds: [31006], authors: [BEERBOT_PUBKEY], limit: 1000 }], { eoseSubTimeout: 8000 })
+      )).catch(() => []);
+      existing = new Set(seen.flatMap((ev) => ev.tags.filter(([n]) => n === 'd').map(([, v]) => v)));
+      if (existing.size) console.log(`Skipping ${existing.size} already-published beers`);
+    } catch { /* fresh run */ }
+  }
+
   let ok = 0;
   for (const b of beers) {
+    const preSlug = beerSlug(b.name, b.brewery);
+    if (!dryRun && existing.has(preSlug)) { continue; }
     const template = buildBeerEvent(b);
     const event = finalizeEvent(template, sk);
     const slug = template.tags.find(([n]) => n === 'd')[1];

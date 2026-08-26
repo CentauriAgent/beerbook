@@ -194,6 +194,15 @@
     font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
   }
 
+  /* Kill pull-to-refresh / overscroll glow at the document level: the
+     reader handles its own gestures (see PageReader). 'contain' stops
+     scroll chaining + browser pull-to-refresh without blocking inner
+     scrollable areas. */
+  html,
+  body {
+    overscroll-behavior: contain;
+  }
+
   /* Beerbook book-paper texture: subtle warm grain */
   body {
     background-image: radial-gradient(rgba(180, 130, 60, 0.06) 1px, transparent 1px);

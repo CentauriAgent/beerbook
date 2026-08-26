@@ -1,56 +1,70 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BeerPage } from '@/components/BeerPage';
+import { PageTurn, type PageTurnHandle } from '@/components/PageTurn';
 import type { BeerCheckIn } from '@/lib/beerbook';
+import type { FoldCorner, FoldDirection } from '@/lib/page-fold';
+import { playPaperCrackle } from '@/lib/paper-crackle';
 import { cn } from '@/lib/utils';
-
-const TURN_THRESHOLD = 0.25; // fraction of width
-const VELOCITY_THRESHOLD = 0.5; // px/ms
 
 interface PageReaderProps {
   checkIns: BeerCheckIn[];
   startIndex?: number;
 }
 
+/** Axis-lock dead zone (px) before a gesture is treated as a turn. */
+const LOCK_EPSILON_PX = 8;
+/** Commit when the fold has progressed this far (%, out of 100). */
+const COMMIT_PROGRESS = 30;
+/** Or when released with this velocity toward the turn (px/ms). */
+const COMMIT_VELOCITY = 0.4;
+
 /**
- * Book page reader with a finger-tracked 3D page curl.
- * - Swipe left/right (or arrow keys, or edge clicks) to turn pages.
- * - The page peels in real time under your finger (CSS perspective + rotateY),
- *   springs back if released below threshold.
+ * Book page reader with our OWN page-turn engine.
+ *
+ * The fold geometry is ported from StPageFlip (see `src/lib/page-fold.ts`)
+ * but the gesture layer, animation and rendering are ours — pointer events
+ * with x/y axis lock (`touch-action: pan-y` lets vertical drags fall
+ * through to page scroll), finger-tracked fold anchored at the corner grab
+ * regions, release physics (commit ≥30% progress or flick velocity, else
+ * spring back with a slight overshoot), and programmatic turns (keyboard,
+ * edge tap zones) reusing the same animation path with a synthetic drag.
  */
 export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
-  const [index, setIndex] = useState(startIndex);
-  const [dragX, setDragX] = useState<number | null>(null); // px, null = not dragging
-  const [turning, setTurning] = useState<null | 'next' | 'prev' | 'cancel-next' | 'cancel-prev'>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const dragStart = useRef<{ x: number; y: number; t: number } | null>(null);
-  const locked = useRef<'x' | 'y' | null>(null);
-  const timers = useRef<ReturnType<typeof setTimeout>>(undefined);
-
   const total = checkIns.length;
-  const width = containerRef.current?.clientWidth ?? 1;
-  const progress = total > 0 ? dragX !== null && turning ? dragX / width : 0 : 0;
+  const clampedStart = total > 0 ? Math.min(Math.max(0, startIndex), total - 1) : 0;
 
-  const goNext = useCallback(() => {
-    if (index < total - 1) {
-      setTurning('next');
-      timers.current = setTimeout(() => {
-        setIndex((i) => i + 1);
-        setTurning(null);
-      }, 350);
-    }
+  const [index, setIndex] = useState(clampedStart);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const turnRef = useRef<PageTurnHandle>(null);
+
+  const indexRef = useRef(index);
+  const totalRef = useRef(total);
+  useEffect(() => {
+    indexRef.current = index;
+    totalRef.current = total;
   }, [index, total]);
 
-  const goPrev = useCallback(() => {
-    if (index > 0) {
-      setTurning('prev');
-      timers.current = setTimeout(() => {
-        setIndex((i) => i - 1);
-        setTurning(null);
-      }, 350);
+  // Keep the index valid when the page set shrinks.
+  useEffect(() => {
+    if (indexRef.current > total - 1) setIndex(Math.max(0, total - 1));
+  }, [total]);
+
+  // Paper crinkle on turn commit (user gesture → AudioContext resume ok).
+  const lastCrunched = useRef(-1);
+  useEffect(() => {
+    if (index !== lastCrunched.current) {
+      if (lastCrunched.current !== -1) playPaperCrackle(1);
+      lastCrunched.current = index;
     }
   }, [index]);
 
-  // Keyboard navigation (desktop)
+  const goNext = useCallback(() => {
+    if (indexRef.current < totalRef.current - 1) turnRef.current?.flip('next');
+  }, []);
+  const goPrev = useCallback(() => {
+    if (indexRef.current > 0) turnRef.current?.flip('prev');
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') goNext();
@@ -60,61 +74,150 @@ export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [goNext, goPrev]);
 
-  useEffect(() => () => clearTimeout(timers.current), []);
+  // --- Gesture layer (ours, proven): pointerdown → axis lock → fold -------
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-  // Pointer handling
-  const onPointerDown = (e: React.PointerEvent) => {
-    if (turning) return;
-    dragStart.current = { x: e.clientX, y: e.clientY, t: performance.now() };
-    locked.current = null;
-    setDragX(0);
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
+    interface Drag {
+      id: number;
+      startX: number;
+      startY: number;
+      startT: number;
+      lastX: number;
+      lastY: number;
+      lastT: number;
+      axis: null | 'x' | 'y';
+      direction: FoldDirection | null;
+    }
+    let drag: Drag | null = null;
 
-  const onPointerMove = (e: React.PointerEvent) => {
-    if (!dragStart.current) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    if (!locked.current) {
-      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
-        locked.current = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    const localPoint = (e: PointerEvent) => {
+      const r = container.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+
+    const logGesture = (type: string, dx: number, dt: number, extra?: Record<string, number>) => {
+      const w = window as typeof window & {
+        __swipeEvents?: { type: string; dx: number; dt: number; progress?: number; vx?: number }[];
+      };
+      w.__swipeEvents ??= [];
+      w.__swipeEvents.push({ type, dx: Math.round(dx), dt: Math.round(dt), ...extra });
+    };
+
+    // While an x-axis page-turn drag is active, cancel the browser's
+    // touch scrolling (pull-to-refresh / overscroll) — the listener MUST
+    // be non-passive for preventDefault to be honored.
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.cancelable && drag?.axis === 'x') e.preventDefault();
+    };
+
+    const detach = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onCancel);
+    };
+
+    const startTurnDrag = (d: Drag, e: PointerEvent) => {
+      const turn = turnRef.current;
+      if (!turn) return;
+      const p = localPoint(e);
+      const startXLocal = p.x - (e.clientX - d.startX); // local x at pointerdown
+      // Corner-grab regions: right half → next (right corner lifts left),
+      // left half → prev (left page sweeps in). Corner top/bottom by y.
+      const direction: FoldDirection = startXLocal > container.clientWidth / 2 ? 'forward' : 'back';
+      const corner: FoldCorner = p.y >= container.clientHeight / 2 ? 'bottom' : 'top';
+      d.direction = direction;
+      turn.startFold(p, direction, corner);
+    };
+
+    const onDown = (e: PointerEvent) => {
+      if (drag) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      drag = {
+        id: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        startT: performance.now(),
+        lastX: e.clientX,
+        lastY: e.clientY,
+        lastT: performance.now(),
+        axis: null,
+        direction: null,
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onCancel);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      const d = drag;
+      if (!d || e.pointerId !== d.id) return;
+      d.lastX = e.clientX;
+      d.lastY = e.clientY;
+      d.lastT = performance.now();
+
+      const dx = e.clientX - d.startX;
+      const dy = e.clientY - d.startY;
+
+      if (d.axis === null) {
+        if (Math.abs(dx) < LOCK_EPSILON_PX && Math.abs(dy) < LOCK_EPSILON_PX) return;
+        d.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+        if (d.axis === 'x') startTurnDrag(d, e);
+        // axis 'y' → released to vertical scroll (pan-y); fold never starts.
       }
-      if (locked.current === 'y') {
-        dragStart.current = null;
-        setDragX(null);
+      if (d.axis !== 'x') return;
+
+      turnRef.current?.foldTo(localPoint(e));
+    };
+
+    const finish = (e: PointerEvent, cancelled: boolean) => {
+      const d = drag;
+      if (!d || e.pointerId !== d.id) return;
+      drag = null;
+      detach();
+      const turn = turnRef.current;
+      if (!turn) return;
+
+      if (d.axis !== 'x' || d.direction === null) {
+        logGesture(d.axis === 'y' ? 'vertical-scroll' : 'tap', e.clientX - d.startX, performance.now() - d.startT);
+        return; // never started a fold
+      }
+
+      const dx = d.lastX - d.startX;
+      const dt = Math.max(1, d.lastT - d.startT);
+      const vx = dx / dt; // px/ms, signed
+      const progress = turn.getProgress() ?? 0;
+      const dir = d.direction;
+
+      if (cancelled) {
+        turn.endFold(false);
+        logGesture('cancel', dx, dt);
         return;
       }
-    }
-    if (locked.current === 'x') setDragX(dx);
-  };
 
-  const onPointerUp = () => {
-    if (dragX === null || !dragStart.current) {
-      setDragX(null);
-      return;
-    }
-    const dt = Math.max(1, performance.now() - dragStart.current.t);
-    const velocity = Math.abs(dragX) / dt;
-    const w = width || 1;
-    dragStart.current = null;
+      // Fast flick: commit if it points the right way and the turn is legal.
+      const flick = Math.abs(dx) > 40 && Math.abs(vx) > COMMIT_VELOCITY;
+      const towardCommit = dir === 'forward' ? vx < 0 : vx > 0;
+      const legal =
+        dir === 'forward' ? indexRef.current < totalRef.current - 1 : indexRef.current > 0;
 
-    if (dragX < 0 && index < total - 1) {
-      if (-dragX / w > TURN_THRESHOLD || velocity > VELOCITY_THRESHOLD) {
-        goNext();
-      } else {
-        setTurning('cancel-next');
-        setTimeout(() => setTurning(null), 250);
-      }
-    } else if (dragX > 0 && index > 0) {
-      if (dragX / w > TURN_THRESHOLD || velocity > VELOCITY_THRESHOLD) {
-        goPrev();
-      } else {
-        setTurning('cancel-prev');
-        setTimeout(() => setTurning(null), 250);
-      }
-    }
-    setDragX(null);
-  };
+      const commit = legal && !cancelled && (flick ? towardCommit : progress >= COMMIT_PROGRESS || (towardCommit && Math.abs(vx) > COMMIT_VELOCITY));
+      turn.endFold(commit);
+      logGesture(`${commit ? 'commit' : 'spring-back'}-${dir}`, dx, dt, { progress: Math.round(progress), vx: Number(vx.toFixed(3)) });
+    };
+
+    const onUp = (e: PointerEvent) => finish(e, false);
+    const onCancel = (e: PointerEvent) => finish(e, true);
+
+    container.addEventListener('pointerdown', onDown);
+    container.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => {
+      container.removeEventListener('pointerdown', onDown);
+      container.removeEventListener('touchmove', onTouchMove);
+      detach();
+    };
+  }, []);
 
   if (total === 0) {
     return (
@@ -130,126 +233,55 @@ export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
     );
   }
 
-  const clampedIndex = Math.min(Math.max(0, index), total - 1);
-  const current = checkIns[clampedIndex];
-  const next = checkIns[clampedIndex + 1];
-  const prev = checkIns[clampedIndex - 1];
-
-  // --- Compute transforms ---
-  let flipTransform = '';
-  let flipTransformClass = '';
-  let showFlipPage = false;
-  let flipPage: BeerCheckIn | undefined;
-
-  if (dragX !== null && locked.current === 'x') {
-    // Real-time finger tracking
-    const angle = Math.max(-100, Math.min(100, (dragX / width) * -90));
-    if (dragX < 0 && next) {
-      // Peeling current page forward (left swipe → next)
-      showFlipPage = true;
-      flipPage = current;
-      flipTransform = `rotateY(${Math.min(0, angle) * 0.9}deg)`;
-      flipTransformClass = 'origin-left';
-    } else if (dragX > 0 && prev) {
-      // Prev page peeling back in (right swipe → previous)
-      showFlipPage = true;
-      flipPage = prev;
-      const t = Math.max(0, Math.min(1, dragX / width));
-      flipTransform = `rotateY(${(1 - t) * -90}deg)`;
-      flipTransformClass = 'origin-left';
-    }
-  } else if (turning === 'next' || turning === 'cancel-next') {
-    showFlipPage = true;
-    flipPage = current;
-    flipTransformClass = 'origin-left transition-transform duration-300 ease-out';
-    flipTransform = turning === 'next' ? 'rotateY(-95deg)' : 'rotateY(0deg)';
-  } else if (turning === 'prev' || turning === 'cancel-prev') {
-    showFlipPage = true;
-    flipPage = prev;
-    flipTransformClass = 'origin-left transition-transform duration-300 ease-out';
-    flipTransform = turning === 'prev' ? 'rotateY(0deg)' : 'rotateY(-90deg)';
-  }
-
-  // Base layer underneath during a forward flip shows next page; otherwise current.
-  const basePage = (turning === 'next' || (dragX !== null && dragX < 0)) && next ? next : current;
-
   return (
     <div
       ref={containerRef}
+      style={{ touchAction: 'pan-y', overscrollBehavior: 'contain' }}
       className="relative h-full w-full overflow-hidden bg-stone-900"
-      style={{ perspective: '1600px' }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
     >
-      {/* Base page (beneath the flipping page) */}
-      <div className="absolute inset-0" style={{ backfaceVisibility: 'hidden' }}>
-        <BeerPage checkIn={basePage} />
-      </div>
+      <PageTurn ref={turnRef} index={index} onIndexChange={setIndex}>
+        {checkIns.map((checkIn) => (
+          <BeerPage key={checkIn.id} checkIn={checkIn} />
+        ))}
+      </PageTurn>
 
-      {/* Flipping page (only visible during drag/animation) */}
-      {showFlipPage && flipPage && (
-        <div
-          className={cn('absolute inset-0', flipTransformClass)}
-          style={{
-            transform: flipTransform,
-            transformStyle: 'preserve-3d',
-            backfaceVisibility: 'hidden',
-            boxShadow: dragX !== null ? '0 0 40px rgba(0,0,0,0.6)' : undefined,
-            zIndex: 10,
-          }}
-        >
-          <BeerPage checkIn={flipPage} />
-        </div>
-      )}
-
-      {/* Edge click zones (desktop) */}
-      {clampedIndex > 0 && (
+      {/* Edge click zones — pointer devices only (hover-capable). On touch
+          they'd cover the drag surface and swallow swipe-back gestures. */}
+      {index > 0 && (
         <button
           type="button"
           aria-label="Previous page"
-          className="absolute inset-y-0 left-0 z-20 w-12 cursor-w-resize opacity-0"
+          className="pointer-events-none absolute inset-y-0 left-0 z-50 w-12 cursor-w-resize opacity-0 [@media(hover:hover)]:pointer-events-auto"
           onClick={goPrev}
         />
       )}
-      {clampedIndex < total - 1 && (
+      {index < total - 1 && (
         <button
           type="button"
           aria-label="Next page"
-          className="absolute inset-y-0 right-0 z-20 w-12 cursor-e-resize opacity-0"
+          className="pointer-events-none absolute inset-y-0 right-0 z-50 w-12 cursor-e-resize opacity-0 [@media(hover:hover)]:pointer-events-auto"
           onClick={goNext}
         />
       )}
 
-      {/* Progress dots */}
-      <div className="absolute inset-x-0 bottom-3 z-30 flex items-center justify-center gap-1.5">
+      {/* Progress dots / counter */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 z-50 flex items-center justify-center gap-1.5">
         {total <= 12 ? (
-          checkIns.map((_, i) => (
+          checkIns.map((c, i) => (
             <span
-              key={i}
+              key={c.id}
               className={cn(
                 'h-1.5 rounded-full transition-all',
-                i === clampedIndex ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/40',
+                i === index ? 'w-5 bg-amber-400' : 'w-1.5 bg-white/40',
               )}
             />
           ))
         ) : (
           <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-amber-100 backdrop-blur-sm">
-            {clampedIndex + 1} / {total}
+            {index + 1} / {total}
           </span>
         )}
       </div>
-
-      {/* Hint progress indicator while dragging */}
-      {dragX !== null && locked.current === 'x' && (
-        <div className="absolute inset-x-0 top-14 z-30 h-0.5 bg-white/10">
-          <div
-            className="h-full bg-amber-400 transition-none"
-            style={{ width: `${Math.min(100, Math.abs(progress) * 100)}%` }}
-          />
-        </div>
-      )}
     </div>
   );
 }

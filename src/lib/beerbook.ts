@@ -46,7 +46,7 @@ export function parseCheckIn(event: NostrEvent): BeerCheckIn | null {
   const imeta = event.tags.find(([n]) => n === 'imeta');
   let image: string | undefined;
   if (imeta) {
-    const url = imeta.slice(1).find(([k]) => k === 'url')?.[1];
+    const url = imeta.slice(1).find((v) => v.startsWith('url '))?.slice(4);
     if (url) image = url;
   } else {
     const m = event.content.match(/https?:\/\/\S+\.(jpg|jpeg|png|webp|gif)\S*/i);
@@ -74,6 +74,7 @@ export function parseCheckIn(event: NostrEvent): BeerCheckIn | null {
     brewery: brewery ?? '',
     rating: Number.isFinite(rating) ? rating : 0,
     description: event.content
+      .replace(/https?:\/\/\S+\.(jpg|jpeg|png|webp|gif)\S*/i, '')
       .replace(/#\w+/g, '')
       .replace(/^\s*🍻?\s*/u, '')
       .replace(/🍺\s*Drinking\s+.+?(?:\n|$)/g, '')
@@ -113,6 +114,12 @@ export function buildCheckInEvent(input: {
     lines.push(input.description.trim());
   }
   if (input.location) lines.push(`\n📍 ${input.location}`);
+  // Include the image URL in the content itself — many clients only render
+  // images whose URL appears in the text (imeta alone is not enough).
+  for (const imeta of input.imageTags ?? []) {
+    const url = imeta.slice(1).find((v) => v.startsWith('url '))?.slice(4);
+    if (url) lines.push(`\n${url}`);
+  }
   lines.push('\n#beerbook');
 
   const tags: string[][] = [

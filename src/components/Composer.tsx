@@ -558,6 +558,19 @@ export function Composer() {
                   value={showPlaces ? placeQuery : location}
                   onChange={(e) => { setPlaceQuery(e.target.value); setShowPlaces(true); }}
                   onFocus={() => { if (location) { setPlaceQuery(location); } setShowPlaces(true); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const q = placeQuery.trim();
+                      if (q) {
+                        setLocation(q);
+                        setCoords(null);
+                        setShowPlaces(false);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setShowPlaces(false);
+                    }
+                  }}
                   placeholder="Search bars, restaurants, pubs…"
                   className="border-amber-300 bg-white pl-9"
                 />
@@ -596,7 +609,7 @@ export function Composer() {
             )}
 
             {showPlaces && debouncedPlaceQuery.trim().length >= 3 && placeResults.length === 0 && (
-              <p className="text-xs text-amber-700/70">No places found — you can still type a custom location below.</p>
+              <p className="text-xs text-amber-700/70">No places found — press Enter to use “{debouncedPlaceQuery.trim()}” as a custom location.</p>
             )}
 
             {location && (

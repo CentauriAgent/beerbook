@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Maximize2, Minimize2, Share2, Trash2, Zap } from 'lucide-react';
+import { memo, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Maximize2, Minimize2, Plus, Share2, Trash2, Zap } from 'lucide-react';
 import { StarRating } from '@/components/StarRating';
 import { useZap } from '@/hooks/useZap';
 import { useCheers } from '@/hooks/useCheers';
@@ -10,18 +10,31 @@ import { useAuthor } from '@/hooks/useAuthor';
 import type { BeerCheckIn } from '@/lib/beerbook';
 import { beerPath, profilePath, readerPath } from '@/lib/nip19links';
 import { cn } from '@/lib/utils';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx';
+import { LoginArea } from '@/components/auth/LoginArea';
+import { useLoggedInAccounts } from '@/hooks/useLoggedInAccounts';
+import { useNostrLogin } from '@nostrify/react/login';
+import { LogOut, Menu } from 'lucide-react';
 
 interface BeerPageProps {
   checkIn: BeerCheckIn;
   interactive?: boolean; // enable zap/maximize buttons
 }
 
-/** A single book "page": full-bleed photo + overlay. */
-export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
+/** A single book "page": full-bleed photo + overlay. Memoized so the
+ * per-frame drag/spring re-renders in PageReader skip this whole subtree
+ * (props only change when the base check-in actually changes). */
+export const BeerPage = memo(function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { removeLogin } = useLoggedInAccounts();
+  const { logins } = useNostrLogin();
   const zap = useZap();
   const cheers = useCheers(checkIn.id, checkIn.pubkey);
   const { user } = useCurrentUser();
+  const { data: me } = useAuthor(user?.pubkey ?? '');
+  const meAvatar = me?.metadata?.picture;
   const del = useDeleteCheckIn();
   const isMine = !!user && user.pubkey === checkIn.pubkey;
   const { data: author } = useAuthor(checkIn.pubkey);
@@ -136,9 +149,9 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
             )}
           </div>
 
-          {/* Author row + zap */}
+          {/* Author row */}
           {interactive && (
-            <div className="mt-3 flex items-center justify-between">
+            <div className="mt-3 flex items-center">
               <Link
                 to={profilePath(checkIn.pubkey)}
                 onClick={(e) => e.stopPropagation()}
@@ -151,84 +164,163 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
                 )}
                 <span>{metadata?.display_name || metadata?.name || `${checkIn.pubkey.slice(0, 8)}…`}</span>
               </Link>
-              <span className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!cheers.data?.mine) cheers.mutation.mutate();
-                  }}
-                  disabled={cheers.mutation.isPending || cheers.data?.mine}
-                  title={cheers.data?.mine ? 'You cheered this 🍻' : 'Cheers! 🍻'}
-                  className={cn(
-                    'flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold transition',
-                    cheers.data?.mine
-                      ? 'bg-amber-200 text-amber-900'
-                      : 'bg-black/35 text-amber-100 hover:bg-black/55',
-                  )}
-                >
-                  🍻 {cheers.data?.count ?? 0}
-                </button>
-                {isMine && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (window.confirm('Remove this page from your Beerbook?')) del.mutate({ id: checkIn.id });
-                    }}
-                    disabled={del.isPending}
-                    aria-label="Delete this page"
-                    title="Delete this page"
-                    className="flex h-7 w-7 items-center justify-center rounded-full bg-black/35 text-amber-100 transition hover:bg-red-700/70 disabled:opacity-50"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    share();
-                  }}
-                  aria-label="Share this page"
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/35 text-amber-100 transition hover:bg-black/55"
-                >
-                  <Share2 size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    zap.mutate({ pubkey: checkIn.pubkey, eventId: checkIn.id, amount: 21 });
-                  }}
-                  disabled={zap.isPending}
-                  className="flex items-center gap-1 rounded-full bg-amber-500/90 px-3 py-1 text-xs font-semibold text-amber-950 transition hover:bg-amber-400 disabled:opacity-50"
-                >
-                  <Zap size={14} /> {zap.isPending ? 'Zapping…' : 'Zap 21'}
-                </button>
-              </span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Maximize toggle */}
+      {/* Top-right FAB: logged-in user's avatar (tap to expand actions);
+          logged-out users get a plain Join button — browse only. */}
       {interactive && (
-        <button
-          type="button"
-          aria-label={expanded ? 'Maximize photo' : 'Show details'}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-          className="absolute right-3 top-3 rounded-full bg-black/40 p-2 text-white/90 backdrop-blur-sm transition hover:bg-black/60"
-        >
-          {expanded ? <Maximize2 size={18} /> : <Minimize2 size={18} />}
-        </button>
+        user ? (
+        <div className="absolute right-3 top-[calc(0.2rem+env(safe-area-inset-top))] z-50 flex flex-col items-end gap-3">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            aria-label={menuOpen ? 'Hide actions' : 'Show actions'}
+            aria-expanded={menuOpen}
+            className="relative transition active:scale-90"
+          >
+            {meAvatar ? (
+              <img src={meAvatar} alt="" className="h-10 w-10 rounded-full border-2 border-amber-300 object-cover shadow-lg" />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-amber-300 bg-amber-800 text-lg shadow-lg">🍺</div>
+            )}
+            <span className="absolute -bottom-1 -left-1 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-amber-950 ring-2 ring-amber-950/80 shadow-md">
+              <Menu size={12} strokeWidth={2.75} />
+            </span>
+          </button>
+
+          {menuOpen && (
+            <div className='flex flex-col items-end gap-3 animate-scale-in'>
+              {/* Fullscreen photo toggle */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+                aria-label={expanded ? 'Maximize photo' : 'Show details'}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:scale-110 active:scale-90"
+              >
+                {expanded ? <Maximize2 size={22} /> : <Minimize2 size={22} />}
+              </button>
+
+              {/* New check-in */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); navigate('/new'); }}
+                aria-label="New check-in"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-500 text-amber-950 transition hover:scale-110 active:scale-90"
+              >
+                <Plus size={24} strokeWidth={2.5} />
+              </button>
+
+              {/* Cheers */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!cheers.data?.mine) cheers.mutation.mutate();
+                }}
+                disabled={cheers.mutation.isPending || cheers.data?.mine}
+                title={cheers.data?.mine ? 'You cheered this 🍻' : 'Cheers! 🍻'}
+                className="flex flex-col items-center text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition hover:scale-110 active:scale-90 disabled:opacity-70"
+              >
+                <span className={cn('flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-2xl backdrop-blur-sm', cheers.data?.mine ? 'opacity-70' : '')}>🍻</span>
+                <span className="text-xs font-bold">{cheers.data?.count ?? 0}</span>
+              </button>
+
+              {/* Zap */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(e) => e.stopPropagation()}
+                    disabled={zap.isPending}
+                    title="Zap sats ⚡"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-500 text-amber-950 transition hover:scale-110 active:scale-90 disabled:opacity-50"
+                  >
+                    <Zap size={22} strokeWidth={2.5} />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-auto p-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <p className='mb-2 text-center text-xs font-medium text-amber-900/80'>Zap sats ⚡</p>
+                  <div className='grid grid-cols-3 gap-1.5'>
+                    {[21, 100, 500, 1000, 2100, 5000].map((amount) => (
+                      <button
+                        key={amount}
+                        type='button'
+                        disabled={zap.isPending}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          zap.mutate({ pubkey: checkIn.pubkey, eventId: checkIn.id, amount });
+                        }}
+                        className='rounded-full bg-amber-500/90 px-3 py-1.5 text-xs font-semibold text-amber-950 transition hover:bg-amber-400 disabled:opacity-50'
+                      >
+                        {amount.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                </PopoverContent>
+              </Popover>
+
+              {/* Share */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); share(); }}
+                aria-label="Share this page"
+                title="Share"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:scale-110 active:scale-90"
+              >
+                <Share2 size={22} />
+              </button>
+
+              {/* Log out */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (window.confirm('Log out of Beerbook?')) {
+                    removeLogin(logins[0].id);
+                    setMenuOpen(false);
+                  }
+                }}
+                aria-label="Log out"
+                title="Log out"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:scale-110 hover:bg-red-800/80 active:scale-90"
+              >
+                <LogOut size={22} />
+              </button>
+
+              {/* Delete (own pages only) */}
+              {isMine && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm('Remove this page from your Beerbook?')) del.mutate({ id: checkIn.id });
+                  }}
+                  disabled={del.isPending}
+                  aria-label="Delete this page"
+                  title="Delete"
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:scale-110 hover:bg-red-800/80 active:scale-90 disabled:opacity-50"
+                >
+                  <Trash2 size={22} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        ) : (
+          <div className="absolute right-3 top-[calc(0.45rem+env(safe-area-inset-top))] z-50">
+            <LoginArea className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />
+          </div>
+        )
       )}
     </div>
   );
-}
+});
 
 function TaggedAvatar({ pubkey }: { pubkey: string }) {
   const { data: author } = useAuthor(pubkey);

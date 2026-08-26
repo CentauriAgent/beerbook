@@ -16,12 +16,13 @@ interface CatalogBeer {
 /**
  * Catalog.beer search.
  *
- * ⚠️ PRIVATE TEST MODE: the API key is bundled client-side via
- * VITE_CATALOG_BEER_KEY (.env.local). This is fine only for a private
- * test deploy. Before going public, stand up the catalog-proxy server
- * and set VITE_CATALOG_PROXY — the key must move server-side.
+ * Uses the server-side proxy (VITE_CATALOG_PROXY, e.g. https://rosscitadel.com/catalog-api)
+ * when configured — the proxy holds the API key and adds CORS headers, since
+ * api.catalog.beer does not allow browser requests (preflight 401s).
+ * VITE_CATALOG_BEER_KEY (direct, key-in-bundle) is a dev-only fallback.
  */
 const API_BASE = 'https://api.catalog.beer';
+const PROXY_BASE = (import.meta.env.VITE_CATALOG_PROXY as string | undefined)?.replace(/\/$/, '');
 const API_KEY = import.meta.env.VITE_CATALOG_BEER_KEY as string | undefined;
 
 export interface CatalogResult {
@@ -33,16 +34,19 @@ export interface CatalogResult {
 export async function searchCatalogBeers(query: string, signal?: AbortSignal): Promise<CatalogResult> {
   const q = query.trim();
   if (q.length < 2) return { available: true, beers: [] };
-  if (!API_KEY) return { available: false, beers: [], error: 'no catalog.beer key (set VITE_CATALOG_BEER_KEY)' };
 
-  const headers: Record<string, string> = {
-    accept: 'application/json',
-    // Basic auth: "key:" (empty password)
-    authorization: `Basic ${btoa(`${API_KEY}:`)}`,
-  };
+  const headers: Record<string, string> = { accept: 'application/json' };
+  let url: string;
+  if (PROXY_BASE) {
+    url = `${PROXY_BASE}/beer/search?q=${encodeURIComponent(q)}&count=20`;
+  } else {
+    if (!API_KEY) return { available: false, beers: [], error: 'no catalog.beer key (set VITE_CATALOG_BEER_KEY)' };
+    headers.authorization = `Basic ${btoa(`${API_KEY}:`)}`;
+    url = `${API_BASE}/beer/search?q=${encodeURIComponent(q)}&count=20`;
+  }
 
   try {
-    const res = await fetch(`${API_BASE}/beer/search?q=${encodeURIComponent(q)}&count=20`, {
+    const res = await fetch(url, {
       headers,
       signal,
     });

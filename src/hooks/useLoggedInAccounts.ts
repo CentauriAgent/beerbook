@@ -17,9 +17,11 @@ export function useLoggedInAccounts() {
   const { data: authors = [], isLoading } = useQuery({
     queryKey: ['nostr', 'logins', logins.map((l) => l.id).join(';')],
     queryFn: async () => {
+      // Single kind-0 lookup; 10s timeout (the old 1.5s aborted before all
+      // relays reached EOSE, leaving the nav bar profile blank).
       const events = await nostr.query(
         [{ kinds: [0], authors: logins.map((l) => l.pubkey) }],
-        { signal: AbortSignal.timeout(1500) },
+        { signal: AbortSignal.timeout(10000) },
       );
 
       return logins.map(({ id, pubkey }): Account => {
@@ -32,7 +34,8 @@ export function useLoggedInAccounts() {
         }
       });
     },
-    retry: 3,
+    retry: 1,
+    staleTime: 60_000,
   });
 
   // Current user is the first login

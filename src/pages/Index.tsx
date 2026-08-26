@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus } from 'lucide-react';
 import { useSeoMeta } from '@unhead/react';
 import { PageReader } from '@/components/PageReader';
-import { LoginArea } from '@/components/auth/LoginArea';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useFollows } from '@/hooks/useUserSearch';
@@ -90,45 +88,31 @@ export default function Index() {
       {/* Floating top nav — fully transparent over the photo, with a subtle
           gradient scrim (matches the bottom overlay) so controls stay readable
           over bright photos. Safe-area inset keeps it clear of the iOS notch. */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/60 via-black/25 to-transparent pt-[env(safe-area-inset-top)]">
-        <div className="pointer-events-auto flex items-center justify-between px-4 py-2.5">
-          <span className="font-serif text-xl font-bold text-amber-100 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
-            🍺 Beerbook
-          </span>
-          <div className="flex items-center gap-2">
+      <header className="pointer-events-none absolute left-0 top-0 z-40 w-2/3 bg-gradient-to-r from-black/20 via-black/5 to-transparent -translate-y-2 pt-[env(safe-area-inset-top)] pb-3">
+        <div className="pointer-events-none flex items-center justify-between px-4 py-2.5">
+          <span className="pointer-events-auto flex items-center gap-2">
             {user && (
               <button
                 type="button"
                 onClick={() => setGlobal((v) => !v)}
-                title={global ? 'Show only check-ins from people you follow' : 'Show every check-in on the network'}
-                className={cn(
-                  'rounded-full border px-3 py-1 text-xs font-medium transition backdrop-blur-sm',
-                  !global
-                    ? 'border-amber-400 bg-amber-500 text-amber-950 shadow-lg'
-                    : 'border-amber-200/30 bg-black/30 text-amber-100/90 hover:bg-black/45 hover:text-amber-100',
-                )}
+                aria-label={global ? 'Switch to My Crew feed' : 'Switch to global feed'}
+                title={global ? 'My Crew feed' : 'Global feed'}
+                className="flex h-9 w-9 items-center justify-center rounded-full text-2xl drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition hover:scale-110 active:scale-90"
               >
-                {global ? '🌍 Discover' : '🤝 My Crew'}
+                {global ? '🌍' : '🍺'}
               </button>
             )}
-            {user && (
-              <Link
-                to={profilePath(user.pubkey)}
-                className="text-xs text-amber-100/90 underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] hover:text-amber-100 hover:underline"
-              >
-                My Book
-              </Link>
-            )}
-            <LoginArea />
             <button
               type="button"
-              aria-label="New check-in"
-              onClick={() => navigate('/new')}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-amber-950 shadow-lg transition hover:bg-amber-400"
+              onClick={() => refetch()}
+              aria-label="Refresh the book feed"
+              title="Refresh feed"
+              className="font-serif text-xl font-bold text-amber-100 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition hover:opacity-80 active:scale-95"
             >
-              <Plus size={20} strokeWidth={2.5} />
+              Beerbook
             </button>
-          </div>
+          </span>
+          <span />
         </div>
       </header>
     </div>
