@@ -1,0 +1,71 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * Optional Android WebView <140 shim for tailwindcss-safe-area
+ *
+ * The `tailwindcss-safe-area` plugin emits CSS that uses raw
+ * `env(safe-area-inset-*)`. On Android WebView versions before 140
+ * (roughly anything shipped before Aug 2025 that hasn't auto-updated),
+ * Chromium has a bug where those values report 0 even when the device
+ * has a notch or gesture area.
+ *
+ * Capacitor's SystemBars plugin (with `insetsHandling: 'css'`, which is
+ * the default and is already set in the skill's `capacitor.config.ts`)
+ * works around this by injecting `--safe-area-inset-*` CSS variables on
+ * the `html` element with the correct values. But the Tailwind plugin
+ * uses `env()` directly, so those variables alone don't reach it.
+ *
+ * This shim redeclares the most common safe-area utilities with the
+ * `var(--safe-area-inset-*, env(safe-area-inset-*, 0px))` pattern so they
+ * prefer the SystemBars-injected variables when present and fall back to
+ * `env()` otherwise.
+ *
+ * ONLY include this file if you are targeting older Android devices that
+ * may still be running WebView <140. On iOS and on Android 140+ the
+ * plugin's output works correctly and this shim is redundant.
+ *
+ * How to include (Tailwind v4, CSS-first config):
+ *   1. Copy this file to `src/safe-area-shim.css`
+ *   2. Import it in `src/index.css` AFTER `@import "tailwindcss-safe-area";`
+ *      so source order lets these rules win within the utilities layer:
+ *
+ *        @import "tailwindcss";
+ *        @import "tailwindcss-safe-area";
+ *        @import "./safe-area-shim.css";
+ *
+ * Uses `@layer utilities` so these rules sit in the same cascade layer as
+ * the Tailwind utilities they're overriding; later-declared rules within
+ * the same layer win on specificity ties.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  /* Padding */
+  .pt-safe { padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px)); }
+  .pr-safe { padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px)); }
+  .pb-safe { padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
+  .pl-safe { padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px)); }
+  .px-safe {
+    padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+    padding-left:  var(--safe-area-inset-left,  env(safe-area-inset-left,  0px));
+  }
+  .py-safe {
+    padding-top:    var(--safe-area-inset-top,    env(safe-area-inset-top,    0px));
+    padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  }
+  .p-safe {
+    padding-top:    var(--safe-area-inset-top,    env(safe-area-inset-top,    0px));
+    padding-right:  var(--safe-area-inset-right,  env(safe-area-inset-right,  0px));
+    padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+    padding-left:   var(--safe-area-inset-left,   env(safe-area-inset-left,   0px));
+  }
+
+  /* Margin */
+  .mt-safe { margin-top:    var(--safe-area-inset-top,    env(safe-area-inset-top,    0px)); }
+  .mr-safe { margin-right:  var(--safe-area-inset-right,  env(safe-area-inset-right,  0px)); }
+  .mb-safe { margin-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
+  .ml-safe { margin-left:   var(--safe-area-inset-left,   env(safe-area-inset-left,   0px)); }
+
+  /* Position */
+  .top-safe    { top:    var(--safe-area-inset-top,    env(safe-area-inset-top,    0px)); }
+  .right-safe  { right:  var(--safe-area-inset-right,  env(safe-area-inset-right,  0px)); }
+  .bottom-safe { bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
+  .left-safe   { left:   var(--safe-area-inset-left,   env(safe-area-inset-left,   0px)); }
+}

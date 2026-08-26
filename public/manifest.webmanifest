@@ -1,0 +1,23 @@
+{
+  "name": "Beerbook",
+  "short_name": "Beerbook",
+  "description": "Your drinking history as a beautiful, ownable book. A Nostr-native beer journal.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1c130a",
+  "theme_color": "#b45309",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
