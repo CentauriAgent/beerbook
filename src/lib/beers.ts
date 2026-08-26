@@ -10,6 +10,7 @@ export interface BeerRecord {
   name: string;
   brewery: string;
   style?: string;
+  style_id?: string; // catalog.beer style slug (e.g. "american-ipa")
   abv?: string;
   ibu?: string;
   description?: string;
@@ -46,6 +47,7 @@ export function parseBeerEvent(event: NostrEvent): BeerRecord | null {
     name: tag('name') ?? d,
     brewery: tag('brewery') ?? '',
     style: tag('style'),
+    style_id: tag('style_id'),
     abv: tag('abv'),
     ibu: tag('ibu'),
     description: tag('description') || contentDesc || undefined,
@@ -61,6 +63,7 @@ export function buildBeerEvent(input: {
   name: string;
   brewery: string;
   style?: string;
+  style_id?: string;
   abv?: string;
   ibu?: string;
   description?: string;
@@ -75,6 +78,7 @@ export function buildBeerEvent(input: {
   ];
   if (input.brewery) tags.push(['brewery', input.brewery]);
   if (input.style) tags.push(['style', input.style]);
+  if (input.style_id) tags.push(['style_id', input.style_id]);
   if (input.abv) tags.push(['abv', input.abv]);
   if (input.ibu) tags.push(['ibu', input.ibu]);
   if (input.image) tags.push(['image', input.image]);

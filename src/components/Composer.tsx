@@ -18,6 +18,7 @@ import { useUserSearch } from '@/hooks/useUserSearch';
 import { useAuthor } from '@/hooks/useAuthor';
 import { FLAVORS, SERVINGS, buildCheckInEvent, type BeerCheckIn } from '@/lib/beerbook';
 import { buildBeerEvent, type BeerRecord } from '@/lib/beers';
+import { StylePicker, type StylePickerValue } from '@/components/StylePicker';
 import { cn } from '@/lib/utils';
 
 function useDebounced<T>(value: T, ms: number): T {
@@ -46,7 +47,8 @@ export function Composer() {
   const [beer, setBeer] = useState<SelectedBeer>({ name: '', brewery: '' });
   const [beerQuery, setBeerQuery] = useState('');
   const [showBeerForm, setShowBeerForm] = useState(false);
-  const [newBeer, setNewBeer] = useState({ name: '', brewery: '', style: '', abv: '', ibu: '' });
+  const [newBeer, setNewBeer] = useState({ name: '', brewery: '', abv: '', ibu: '' });
+  const [newStyle, setNewStyle] = useState<StylePickerValue | null>(null);
   const [rating, setRating] = useState(0);
   const [description, setDescription] = useState('');
   const [flavors, setFlavors] = useState<string[]>([]);
@@ -108,18 +110,31 @@ export function Composer() {
       return;
     }
     if (!newBeer.name.trim() || !newBeer.brewery.trim()) return;
+    // ABV: decimal 0–20; IBU: integer 0–120 (optional)
+    const abvNum = newBeer.abv.trim() === '' ? undefined : Number(newBeer.abv);
+    if (abvNum != null && (!Number.isFinite(abvNum) || abvNum < 0 || abvNum > 20)) {
+      toast({ title: 'ABV must be a number between 0 and 20', variant: 'destructive' });
+      return;
+    }
+    const ibuNum = newBeer.ibu.trim() === '' ? undefined : Number(newBeer.ibu);
+    if (ibuNum != null && (!Number.isInteger(ibuNum) || ibuNum < 0 || ibuNum > 120)) {
+      toast({ title: 'IBU must be a whole number between 0 and 120', variant: 'destructive' });
+      return;
+    }
+    const brewery = normalizeBrewery(newBeer.brewery);
     const template = buildBeerEvent({
       name: newBeer.name.trim(),
-      brewery: newBeer.brewery.trim(),
-      style: newBeer.style.trim() || undefined,
-      abv: newBeer.abv.trim() || undefined,
-      ibu: newBeer.ibu.trim() || undefined,
+      brewery,
+      style: newStyle?.name,
+      style_id: newStyle?.id,
+      abv: abvNum != null ? abvNum.toFixed(1) : undefined,
+      ibu: ibuNum != null ? String(ibuNum) : undefined,
     });
     try {
       const event = await publish.mutateAsync(template);
       setBeer({
         name: newBeer.name.trim(),
-        brewery: newBeer.brewery.trim(),
+        brewery,
         beerRef: template.tags.find(([n]) => n === 'd')?.[1],
         record: {
           d: template.tags.find(([n]) => n === 'd')![1],
@@ -131,6 +146,7 @@ export function Composer() {
         },
       });
       setShowBeerForm(false);
+      setNewStyle(null);
       setBeerQuery('');
       toast({ title: 'Beer added to the Nostr inventory 📖', description: newBeer.name.trim() });
     } catch (error) {
@@ -314,11 +330,35 @@ export function Composer() {
             <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
               <p className="font-serif text-sm text-amber-900">Add a new beer to the inventory</p>
               <Input placeholder="Beer name *" value={newBeer.name} onChange={(e) => setNewBeer({ ...newBeer, name: e.target.value })} className="border-amber-300" />
-              <Input placeholder="Brewery *" value={newBeer.brewery} onChange={(e) => setNewBeer({ ...newBeer, brewery: e.target.value })} className="border-amber-300" />
-              <div className="grid grid-cols-3 gap-2">
-                <Input placeholder="Style" value={newBeer.style} onChange={(e) => setNewBeer({ ...newBeer, style: e.target.value })} className="border-amber-300" />
-                <Input placeholder="ABV %" value={newBeer.abv} onChange={(e) => setNewBeer({ ...newBeer, abv: e.target.value })} className="border-amber-300" />
-                <Input placeholder="IBU" value={newBeer.ibu} onChange={(e) => setNewBeer({ ...newBeer, ibu: e.target.value })} className="border-amber-300" />
+              <div>
+                <Input
+                  placeholder="Brewery *"
+                  value={newBeer.brewery}
+                  onChange={(e) => setNewBeer({ ...newBeer, brewery: e.target.value })}
+                  onBlur={(e) => setNewBeer({ ...newBeer, brewery: normalizeBrewery(e.target.value) })}
+                  className={cn('border-amber-300', breweryWarning(newBeer.brewery) && 'border-amber-500')}
+                />
+                {(() => {
+                  const w = breweryWarning(newBeer.brewery);
+                  return w ? <p className="mt-1 text-xs text-amber-700">Did you mean “{w}”?</p> : null;
+                })()}
+              </div>
+              <div>
+                <StylePicker value={newStyle} onChange={setNewStyle} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  type="number" min={0} max={20} step={0.1} inputMode="decimal"
+                  placeholder="ABV %" value={newBeer.abv}
+                  onChange={(e) => setNewBeer({ ...newBeer, abv: e.target.value })}
+                  className="border-amber-300"
+                />
+                <Input
+                  type="number" min={0} max={120} step={1} inputMode="numeric"
+                  placeholder="IBU (optional)" value={newBeer.ibu}
+                  onChange={(e) => setNewBeer({ ...newBeer, ibu: e.target.value })}
+                  className="border-amber-300"
+                />
               </div>
               <div className="flex gap-2">
                 <Button type="button" size="sm" onClick={submitNewBeer} disabled={!newBeer.name.trim() || !newBeer.brewery.trim() || publish.isPending} className="bg-amber-600 text-amber-50 hover:bg-amber-700">
@@ -368,7 +408,7 @@ export function Composer() {
                   ))}
                   <button
                     type="button"
-                    onClick={() => { setShowBeerForm(true); setNewBeer({ ...newBeer, name: beerQuery.trim() }); }}
+                    onClick={() => { setShowBeerForm(true); setNewBeer({ name: beerQuery.trim(), brewery: '', abv: '', ibu: '' }); setNewStyle(null); }}
                     className="flex w-full items-center gap-2 bg-amber-100 px-3 py-2.5 text-left font-medium text-amber-900 hover:bg-amber-200"
                   >
                     <Plus size={16} /> Add “{beerQuery.trim()}” as a new beer
