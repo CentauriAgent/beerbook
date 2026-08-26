@@ -53,9 +53,9 @@ export function parseCheckIn(event: NostrEvent): BeerCheckIn | null {
 
   // Parse beer/brewery from structured tags first, then from content fallback.
   let beer = tag('beer_name');
-  let brewery = tag('brewery');
+ let brewery = tag('brewery');
   if (!beer) {
-    const m = event.content.match(/Drinking\s+(.+?)\s+by\s+(.+?)(?:\s+[—-]\s|\n)/);
+    const m = event.content.match(/Drinking\s+(.+?)(?:\s+by\s+(.+?))?(?:\s+[—-]\s*\d+(?:\.\d+?|\.\d+)?\s*★|\n|$)/);
     if (m) {
       beer = m[1];
       brewery = brewery ?? m[2];
@@ -70,7 +70,12 @@ export function parseCheckIn(event: NostrEvent): BeerCheckIn | null {
     rating: Number.isFinite(rating) ? rating : 0,
     description: event.content
       .replace(/#\w+/g, '')
-      .replace(/Drinking\s+.+?\n?/, '')
+      .replace(/^\s*🍻?\s*/u, '')
+      .replace(/🍺\s*Drinking\s+.+?(?:\n|$)/g, '')
+      .replace(/Drinking\s+.+?(?:\n|$)/g, '')
+      .replace(/^\s*[—-]\s*\d(?:\.\d)?\s*★\s*$/gm, '')
+      .replace(/^\s*📍.*$/gm, '')
+      .replace(/\n{3,}/g, '\n\n')
       .trim(),
     flavors,
     serving,
