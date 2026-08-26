@@ -6,6 +6,11 @@ import { NUser, useNostrLogin } from '@nostrify/react/login';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppContext } from '@/hooks/useAppContext';
 
+/** Relays that support NIP-50 search (search filters are routed here only). */
+const SEARCH_RELAYS = new Set([
+  'wss://relay.ditto.pub',
+]);
+
 interface NostrProviderProps {
   children: React.ReactNode;
 }
@@ -69,9 +74,12 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
     reqRouter(filters: NostrFilter[]) {
       const routes = new Map<string, NostrFilter[]>();
 
-      // Route to all read relays
+      // Route to all read relays, EXCEPT NIP-50 search filters: only
+      // search-capable relays get those (others EOSE instantly with nothing,
+      // which can cause the pool to abort before slow search relays answer).
+      const isSearch = filters.some((f) => typeof f.search === 'string');
       const readRelays = relayMetadataRef.current.relays
-        .filter(r => r.read)
+        .filter(r => r.read && (!isSearch || SEARCH_RELAYS.has(r.url.replace(/\/+$/, ''))))
         .map(r => r.url);
 
       for (const url of readRelays) {
@@ -90,7 +98,9 @@ const NostrProvider: React.FC<NostrProviderProps> = (props) => {
 
       return [...allRelays];
     },
-    eoseTimeout: 200,
+    // 200ms was too aggressive: fast-relay EOSE aborted the pool before
+    // slower (search) relays answered, returning zero results.
+    eoseTimeout: 1500,
   }));
 
   // Derive the current signer from the active login. This mirrors the
