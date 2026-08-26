@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Maximize2, Minimize2, Share2, Zap } from 'lucide-react';
+import { Maximize2, Minimize2, Share2, Trash2, Zap } from 'lucide-react';
 import { StarRating } from '@/components/StarRating';
 import { useZap } from '@/hooks/useZap';
 import { useCheers } from '@/hooks/useCheers';
+import { useDeleteCheckIn } from '@/hooks/useBeerbookFeed';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useAuthor } from '@/hooks/useAuthor';
 import type { BeerCheckIn } from '@/lib/beerbook';
 import { beerPath, profilePath, readerPath } from '@/lib/nip19links';
@@ -19,6 +21,9 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
   const [expanded, setExpanded] = useState(true);
   const zap = useZap();
   const cheers = useCheers(checkIn.id, checkIn.pubkey);
+  const { user } = useCurrentUser();
+  const del = useDeleteCheckIn();
+  const isMine = !!user && user.pubkey === checkIn.pubkey;
   const { data: author } = useAuthor(checkIn.pubkey);
   const metadata = author?.metadata;
 
@@ -162,6 +167,21 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
                 >
                   🍻 {cheers.data?.count ?? 0}
                 </button>
+                {isMine && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm('Remove this page from your Beerbook?')) del.mutate({ id: checkIn.id });
+                    }}
+                    disabled={del.isPending}
+                    aria-label="Delete this page"
+                    title="Delete this page"
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-black/35 text-amber-100 transition hover:bg-red-700/70 disabled:opacity-50"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={(e) => {
