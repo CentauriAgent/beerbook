@@ -1,5 +1,14 @@
 # Beerbook — Phase 1 + 2 Notes
 
+## Immersive UI pass (Aug 26, 2026)
+
+Deployed to https://beerbook-test.surge.sh.
+
+- **Help footer removed** entirely (was "Swipe or use ← → …" bar below the reader).
+- **Transparent floating top nav**: header is now `absolute inset-x-0 top-0` over the reader (reader `main` fills the full `h-dvh`), with a subtle top gradient scrim (`from-black/60 via-black/25 to-transparent`) matching the bottom overlay style. Buttons got drop-shadows + the inactive crew/discover pill is now translucent dark (`bg-black/30 backdrop-blur-sm`) so everything reads over bright photos. Wordmark has a text drop-shadow. Nav is `pointer-events-none` on the scrim wrapper, `pointer-events-auto` on the bar itself, so drag/page-turn gestures through the gradient still work.
+- **Safe-area insets**: `pt-[env(safe-area-inset-top)]` on the nav (notch), page overlay bottom padding `pb-[calc(3.5rem+env(safe-area-inset-bottom))]`; `viewport-fit=cover` was already set.
+- **Polish**: drag-progress hairline moved to `top-14` so it's visible below the floating nav.
+
 ## Bugfix round (Aug 26, 2026) — NIP-19 routing, upload gating, home book = follows
 
 Deployed to https://beerbook-test.surge.sh.
