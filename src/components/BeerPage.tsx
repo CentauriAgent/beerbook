@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Maximize2, Minimize2, Share2, Zap } from 'lucide-react';
 import { StarRating } from '@/components/StarRating';
 import { useZap } from '@/hooks/useZap';
+import { useCheers } from '@/hooks/useCheers';
 import { useAuthor } from '@/hooks/useAuthor';
 import type { BeerCheckIn } from '@/lib/beerbook';
 import { beerPath, profilePath, readerPath } from '@/lib/nip19links';
@@ -17,6 +18,7 @@ interface BeerPageProps {
 export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
   const [expanded, setExpanded] = useState(true);
   const zap = useZap();
+  const cheers = useCheers(checkIn.id, checkIn.pubkey);
   const { data: author } = useAuthor(checkIn.pubkey);
   const metadata = author?.metadata;
 
@@ -143,6 +145,23 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
                 <span>{metadata?.display_name || metadata?.name || `${checkIn.pubkey.slice(0, 8)}…`}</span>
               </Link>
               <span className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!cheers.data?.mine) cheers.mutation.mutate();
+                  }}
+                  disabled={cheers.mutation.isPending || cheers.data?.mine}
+                  title={cheers.data?.mine ? 'You cheered this 🍻' : 'Cheers! 🍻'}
+                  className={cn(
+                    'flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold transition',
+                    cheers.data?.mine
+                      ? 'bg-amber-200 text-amber-900'
+                      : 'bg-black/35 text-amber-100 hover:bg-black/55',
+                  )}
+                >
+                  🍻 {cheers.data?.count ?? 0}
+                </button>
                 <button
                   type="button"
                   onClick={(e) => {
