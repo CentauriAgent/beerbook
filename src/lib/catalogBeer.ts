@@ -13,17 +13,11 @@ interface CatalogBeer {
 }
 
 /**
- * catalog.beer REST client. Basic search is unauthenticated per their docs;
- * a key (if present) enables full results via HTTP basic auth.
- * Key resolution: localStorage `beerbook:catalog-key` → VITE_CATALOG_BEER_KEY.
+ * Catalog.beer access via Beerbook's proxy server (keeps the API key
+ * server-side). Proxy base is configurable at build time via
+ * VITE_CATALOG_PROXY (default: official Beerbook deployment).
  */
-function catalogKey(): string | null {
-  try {
-    return localStorage.getItem('beerbook:catalog-key') || (import.meta.env.VITE_CATALOG_BEER_KEY ?? null);
-  } catch {
-    return import.meta.env.VITE_CATALOG_BEER_KEY ?? null;
-  }
-}
+const PROXY_BASE = (import.meta.env.VITE_CATALOG_PROXY ?? 'https://catalog-proxy.beerbook.app').replace(/\/+$/, '');
 
 export interface CatalogResult {
   available: boolean;
@@ -36,17 +30,15 @@ export async function searchCatalogBeers(query: string, signal?: AbortSignal): P
   if (q.length < 2) return { available: true, beers: [] };
 
   const headers: Record<string, string> = { accept: 'application/json' };
-  const key = catalogKey();
-  if (key) headers['authorization'] = `Basic ${btoa(`${key}:`)}`;
 
   try {
     const res = await fetch(
-      `https://api.catalog.beer/v1/beers?search=${encodeURIComponent(q)}&per_page=20`,
+      `${PROXY_BASE}/api/beer/search?q=${encodeURIComponent(q)}&count=20`,
       { headers, signal },
     );
     if (!res.ok) {
-      // 401/403 = key required, 404 = endpoint changed. Degrade gracefully.
-      return { available: false, beers: [], error: `catalog.beer: HTTP ${res.status}` };
+      // 400 = bad query, 429 = rate limited, 502/504 = upstream/proxy issue.
+      return { available: false, beers: [], error: `catalog proxy: HTTP ${res.status}` };
     }
     const json = await res.json();
     const items: CatalogBeer[] = Array.isArray(json) ? json : (json.data ?? json.beers ?? []);
