@@ -151,7 +151,7 @@ export function Composer() {
       toast({ title: 'Beer added to the Nostr inventory 📖', description: newBeer.name.trim() });
     } catch (error) {
       toast({
-        title: 'Failed to publish beer record',
+        title: 'Failed to save beer record',
         description: error instanceof Error ? error.message : undefined,
         variant: 'destructive',
       });
@@ -227,7 +227,7 @@ export function Composer() {
         beerRef = template.tags.find(([n]) => n === 'd')?.[1];
         beerAuthor = event.pubkey;
       } catch {
-        toast({ title: "Couldn't publish the beer record", description: 'Publishing check-in anyway', variant: 'destructive' });
+        toast({ title: "Couldn't save the beer record", description: 'Posting check-in anyway', variant: 'destructive' });
       }
     }
 
@@ -328,7 +328,7 @@ export function Composer() {
             </div>
           ) : showBeerForm ? (
             <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
-              <p className="font-serif text-sm text-amber-900">Add a new beer to the inventory</p>
+              <p className="font-serif text-sm text-amber-900">Add a new beer to the shared beer list</p>
               <Input placeholder="Beer name *" value={newBeer.name} onChange={(e) => setNewBeer({ ...newBeer, name: e.target.value })} className="border-amber-300" />
               <div>
                 <Input
@@ -411,13 +411,13 @@ export function Composer() {
                     onClick={() => { setShowBeerForm(true); setNewBeer({ name: beerQuery.trim(), brewery: '', abv: '', ibu: '' }); setNewStyle(null); }}
                     className="flex w-full items-center gap-2 bg-amber-100 px-3 py-2.5 text-left font-medium text-amber-900 hover:bg-amber-200"
                   >
-                    <Plus size={16} /> Add “{beerQuery.trim()}” as a new beer
+                    <Plus size={16} /> Add “{beerQuery.trim()}” to the beer list
                   </button>
                 </div>
               )}
               {beerQuery.trim().length < 2 && (
                 <button type="button" onClick={() => setShowBeerForm(true)} className="mt-2 flex items-center gap-1 text-sm text-amber-800 underline-offset-2 hover:underline">
-                  <Plus size={14} /> Can’t find it? Add a new beer
+                  <Plus size={14} /> Can’t find it? Add it to the list
                 </button>
               )}
             </>
