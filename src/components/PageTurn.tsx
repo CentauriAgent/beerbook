@@ -2,6 +2,7 @@ import {
   useCallback,
   forwardRef,
   useEffect,
+  useLayoutEffect,
   useImperativeHandle,
   useRef,
   type ReactNode,
@@ -108,11 +109,21 @@ export const PageTurn = forwardRef<PageTurnHandle, PageTurnProps>(function PageT
     onChangeRef.current = onIndexChange;
   }, [index, children.length, onIndexChange]);
 
-  // Show only the current page when idle.
-  useEffect(() => {
+  // Show only the current page when idle. useLayoutEffect (pre-paint) so an
+  // index change never paints a stale page first. Also warm adjacent pages'
+  // images (decode) so a turn never triggers a visible re-decode flash.
+  useLayoutEffect(() => {
     pageEls.current.forEach((el, i) => {
       if (el) el.style.display = i === index ? 'block' : 'none';
     });
+    for (const adj of [index - 1, index + 1]) {
+      const el = pageEls.current[adj];
+      el?.querySelectorAll('img').forEach((img) => {
+        if (img.complete && img.naturalWidth > 0 && typeof img.decode === 'function') {
+          img.decode().catch(() => {}); // already decoding/failed — fine
+        }
+      });
+    }
   }, [index, children.length]);
 
   const stopRaf = useCallback(() => {
@@ -140,9 +151,15 @@ export const PageTurn = forwardRef<PageTurnHandle, PageTurnProps>(function PageT
     }
     foldRef.current = null;
     // Restore idle page visibility (committed index may have changed).
-    pageEls.current.forEach((el, i) => {
-      if (el) el.style.display = i === indexRef.current ? 'block' : 'none';
-    });
+    // Also clear any fold-time z-index (bottom pages get zIndex 20 during a
+    // fold) — a leftover 20 stacks the settled page over the z-auto edge
+    // buttons and swallows their clicks.
+    for (let i = 0; i < pageEls.current.length; i++) {
+      const el = pageEls.current[i];
+      if (!el) continue;
+      el.style.display = i === indexRef.current ? 'block' : 'none';
+      if (el.style.zIndex !== '') el.style.zIndex = '';
+    }
   }, [stopRaf]);
 
   /** Imperatively apply one fold frame. */
@@ -370,6 +387,12 @@ const rawDest = (f: { direction: FoldDirection; width: number }, pageX: number):
         animateFold(f, { x: destX, y: yDest }, duration, {
           onDone: () => {
             const next = dir === 'forward' ? indexRef.current + 1 : indexRef.current - 1;
+            // Advance the committed index BEFORE teardown so teardown's
+            // idle-visibility restore shows the NEW page synchronously in
+            // this same rAF task (pre-paint). Otherwise one frame of the OLD
+            // page paints between flap removal and React's post-paint effect
+            // — the end-of-turn flicker.
+            indexRef.current = next;
             teardown();
             onChangeRef.current(next);
           },
@@ -407,6 +430,10 @@ const rawDest = (f: { direction: FoldDirection; width: number }, pageX: number):
             onDone: () => {
               const next =
                 f.direction === 'forward' ? indexRef.current + 1 : indexRef.current - 1;
+              // Same anti-flicker ordering as flip(): commit the index to
+              // the ref BEFORE teardown so the flap removal and the new
+              // page becoming visible land in the same frame.
+              indexRef.current = next;
               teardown();
               onChangeRef.current(next);
             },
