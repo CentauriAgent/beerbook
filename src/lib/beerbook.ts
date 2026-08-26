@@ -1,6 +1,11 @@
 import type { NostrEvent } from '@nostrify/nostrify';
 
-export const FLAVORS = ['Malty', 'Sour', 'Roasty', 'Hoppy', 'Fruity', 'Spicy', 'Crisp', 'Sweet', 'Bitter'] as const;
+export const FLAVORS = [
+  'Malty', 'Sour', 'Roasty', 'Hoppy', 'Fruity', 'Spicy', 'Crisp', 'Sweet', 'Bitter',
+  'Smoky', 'Tart', 'Funky', 'Boozy', 'Bready', 'Caramelly', 'Chocolatey', 'Coffee',
+  'Vanilla', 'Oaky', 'Citrusy', 'Piney', 'Floral', 'Herbal', 'Grassy', 'Yeasty',
+  'Earthy', 'Nutty', 'Salty', 'Juicy', 'Hazy', 'Dry', 'Refreshing',
+] as const;
 export type Flavor = (typeof FLAVORS)[number];
 
 export const SERVINGS = ['draft', 'bottle', 'can', 'taster', 'cask'] as const;

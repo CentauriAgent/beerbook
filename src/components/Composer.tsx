@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { nip19 } from 'nostr-tools';
-import { Camera, Plus, Search, UserPlus, X } from 'lucide-react';
+import { Camera, Crosshair, MapPin, Plus, Search, UserPlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +18,7 @@ import { useUserSearch } from '@/hooks/useUserSearch';
 import { useAuthor } from '@/hooks/useAuthor';
 import { FLAVORS, SERVINGS, buildCheckInEvent, type BeerCheckIn } from '@/lib/beerbook';
 import { buildBeerEvent, type BeerRecord } from '@/lib/beers';
+import { getGeoPosition, searchPlaces, findNearbyPlaces, placeLabel, type Place } from '@/lib/placeSearch';
 import { StylePicker, type StylePickerValue } from '@/components/StylePicker';
 import { cn } from '@/lib/utils';
 
@@ -54,6 +55,12 @@ export function Composer() {
   const [flavors, setFlavors] = useState<string[]>([]);
   const [serving, setServing] = useState<string>('');
   const [location, setLocation] = useState('');
+  const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [placeResults, setPlaceResults] = useState<Place[]>([]);
+  const [placeQuery, setPlaceQuery] = useState('');
+  const [showPlaces, setShowPlaces] = useState(false);
+  const [geoBusy, setGeoBusy] = useState(false);
+  const debouncedPlaceQuery = useDebounced(placeQuery, 600);
   const [tagged, setTagged] = useState<string[]>([]);
   const [buddyQuery, setBuddyQuery] = useState('');
   const [imetaTag, setImetaTag] = useState<string[] | null>(null); // full imeta tag array
@@ -63,6 +70,47 @@ export function Composer() {
   const beerSearch = useBeerSearch(debouncedBeerQuery);
   const debouncedBuddyQuery = useDebounced(buddyQuery, 350);
   const buddySearch = useUserSearch(debouncedBuddyQuery);
+
+  // Place search (Nominatim, debounced ~1 req/sec per usage policy)
+  useEffect(() => {
+    const q = debouncedPlaceQuery.trim();
+    if (q.length < 3 || !showPlaces) { setPlaceResults([]); return; }
+    const ctrl = new AbortController();
+    searchPlaces(q, ctrl.signal, coords ?? undefined)
+      .then(setPlaceResults)
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [debouncedPlaceQuery, showPlaces, coords]);
+
+  const useMyLocation = async () => {
+    setGeoBusy(true);
+    try {
+      const pos = await getGeoPosition();
+      setCoords(pos);
+      const nearby = await findNearbyPlaces(pos.lat, pos.lon);
+      if (nearby.length) {
+        setLocation(placeLabel(nearby[0]));
+        setPlaceQuery('');
+        setShowPlaces(false);
+        setPlaceResults([]);
+        toast({ title: '📍 Location detected', description: placeLabel(nearby[0]) });
+      } else {
+        setShowPlaces(true);
+        toast({ title: 'Got your position', description: 'Search below — results are now sorted by distance.' });
+      }
+    } catch (e) {
+      toast({ title: 'Could not get GPS location', description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+
+  const pickPlace = (p: Place) => {
+    setLocation(placeLabel(p));
+    setPlaceQuery('');
+    setShowPlaces(false);
+    setPlaceResults([]);
+  };
 
   const previewImage = imetaTag?.find((v) => v.startsWith('url '))?.slice(4) || undefined;
 
@@ -499,8 +547,65 @@ export function Composer() {
 
         {/* Location */}
         <div>
-          <Label htmlFor="loc" className="mb-1 block font-serif text-amber-900">Location (optional)</Label>
-          <Input id="loc" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="The Nest Pub, Austin" className="border-amber-300 bg-white" />
+          <Label className="mb-1 block font-serif text-amber-900">Location (optional)</Label>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-700/60" />
+                <Input
+                  value={showPlaces ? placeQuery : location}
+                  onChange={(e) => { setPlaceQuery(e.target.value); setShowPlaces(true); }}
+                  onFocus={() => { if (location) { setPlaceQuery(location); } setShowPlaces(true); }}
+                  placeholder="Search bars, restaurants, pubs…"
+                  className="border-amber-300 bg-white pl-9"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={useMyLocation}
+                disabled={geoBusy}
+                className="shrink-0 border-amber-400 bg-amber-100 text-amber-900 hover:bg-amber-200"
+                title="Use my location"
+              >
+                <Crosshair size={16} className={geoBusy ? 'animate-spin' : ''} />
+                <span className="hidden sm:inline">{geoBusy ? 'Locating…' : 'GPS'}</span>
+              </Button>
+            </div>
+
+            {showPlaces && placeResults.length > 0 && (
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-amber-300 bg-white shadow-lg">
+                {placeResults.map((p, i) => (
+                  <button
+                    key={`${p.name}-${p.lat}-${i}`}
+                    type="button"
+                    onClick={() => pickPlace(p)}
+                    className="flex w-full items-center gap-2 border-b border-amber-100 px-3 py-2 text-left last:border-0 hover:bg-amber-50"
+                  >
+                    <MapPin size={14} className="shrink-0 text-amber-700" />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-amber-950">{p.name}</span>
+                      {p.address && <span className="block truncate text-xs text-amber-700/80">{p.address}</span>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {showPlaces && debouncedPlaceQuery.trim().length >= 3 && placeResults.length === 0 && (
+              <p className="text-xs text-amber-700/70">No places found — you can still type a custom location below.</p>
+            )}
+
+            {location && (
+              <p className="flex items-center gap-1.5 text-sm text-amber-800">
+                📍 {location}
+                <button type="button" onClick={() => { setLocation(''); setCoords(null); }} className="text-amber-600 hover:text-amber-900" title="Clear">
+                  <X size={14} />
+                </button>
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Buddy search */}
