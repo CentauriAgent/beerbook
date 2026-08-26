@@ -47,54 +47,10 @@ export default function Index() {
   const feedLoading = isLoading || (!global && !!user && followsLoading);
 
   return (
-    <div className="flex h-dvh flex-col bg-stone-900">
-      {/* Top bar */}
-      <header className="relative z-40 flex items-center justify-between border-b border-amber-900/60 bg-amber-950/95 px-4 py-2.5 backdrop-blur">
-        <button
-          type="button"
-          className="flex items-center gap-2 text-left"
-        >
-          <span className="font-serif text-xl font-bold text-amber-100">🍺 Beerbook</span>
-        </button>
-        <div className="flex items-center gap-2">
-          {user && (
-            <button
-              type="button"
-              onClick={() => setGlobal((v) => !v)}
-              title={global ? 'Show only check-ins from people you follow' : 'Show every check-in on the network'}
-              className={cn(
-                'rounded-full border px-3 py-1 text-xs font-medium transition',
-                !global
-                  ? 'border-amber-400 bg-amber-500 text-amber-950'
-                  : 'border-amber-800 bg-transparent text-amber-200/80 hover:text-amber-100',
-              )}
-            >
-              {global ? '🌍 Discover' : '🤝 My Crew'}
-            </button>
-          )}
-          {user && (
-            <Link
-              to={profilePath(user.pubkey)}
-              className="text-xs text-amber-200/80 underline-offset-2 hover:text-amber-100 hover:underline"
-            >
-              My Book
-            </Link>
-          )}
-          <LoginArea />
-          <button
-            type="button"
-            aria-label="New check-in"
-            onClick={() => navigate('/new')}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-amber-950 shadow transition hover:bg-amber-400"
-          >
-            <Plus size={20} strokeWidth={2.5} />
-          </button>
-        </div>
-      </header>
-
-      {/* Reader */}
-      <main className="relative flex-1 overflow-hidden">
-        {feedLoading ? (
+    <div className="relative h-dvh overflow-hidden bg-stone-900">
+      {/* Reader — fills the whole viewport; nav floats over it */}
+      <main className="absolute inset-0">
+      {feedLoading ? (
           <div className="flex h-full items-center justify-center bg-amber-950">
             <div className="animate-pulse text-center">
               <span className="text-5xl">📖</span>
@@ -131,10 +87,50 @@ export default function Index() {
         )}
       </main>
 
-      {/* Hint */}
-      <footer className="bg-amber-950 px-4 py-1 text-center text-[10px] text-amber-200/50">
-        Swipe or use ← → to turn pages · Tap ⚡ to zap the author
-      </footer>
+      {/* Floating top nav — fully transparent over the photo, with a subtle
+          gradient scrim (matches the bottom overlay) so controls stay readable
+          over bright photos. Safe-area inset keeps it clear of the iOS notch. */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/60 via-black/25 to-transparent pt-[env(safe-area-inset-top)]">
+        <div className="pointer-events-auto flex items-center justify-between px-4 py-2.5">
+          <span className="font-serif text-xl font-bold text-amber-100 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]">
+            🍺 Beerbook
+          </span>
+          <div className="flex items-center gap-2">
+            {user && (
+              <button
+                type="button"
+                onClick={() => setGlobal((v) => !v)}
+                title={global ? 'Show only check-ins from people you follow' : 'Show every check-in on the network'}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-xs font-medium transition backdrop-blur-sm',
+                  !global
+                    ? 'border-amber-400 bg-amber-500 text-amber-950 shadow-lg'
+                    : 'border-amber-200/30 bg-black/30 text-amber-100/90 hover:bg-black/45 hover:text-amber-100',
+                )}
+              >
+                {global ? '🌍 Discover' : '🤝 My Crew'}
+              </button>
+            )}
+            {user && (
+              <Link
+                to={profilePath(user.pubkey)}
+                className="text-xs text-amber-100/90 underline-offset-2 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)] hover:text-amber-100 hover:underline"
+              >
+                My Book
+              </Link>
+            )}
+            <LoginArea />
+            <button
+              type="button"
+              aria-label="New check-in"
+              onClick={() => navigate('/new')}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-amber-950 shadow-lg transition hover:bg-amber-400"
+            >
+              <Plus size={20} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
+      </header>
     </div>
   );
 }

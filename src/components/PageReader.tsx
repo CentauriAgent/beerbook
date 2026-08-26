@@ -243,7 +243,7 @@ export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
 
       {/* Hint progress indicator while dragging */}
       {dragX !== null && locked.current === 'x' && (
-        <div className="absolute inset-x-0 top-0 z-30 h-0.5 bg-white/10">
+        <div className="absolute inset-x-0 top-14 z-30 h-0.5 bg-white/10">
           <div
             className="h-full bg-amber-400 transition-none"
             style={{ width: `${Math.min(100, Math.abs(progress) * 100)}%` }}

@@ -64,7 +64,7 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
             : 'pointer-events-none translate-y-full opacity-0',
         )}
       >
-        <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-14 pt-24">
+        <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-24">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               {beerLink ? (
