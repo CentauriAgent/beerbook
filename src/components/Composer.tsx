@@ -98,9 +98,12 @@ export function Composer() {
     });
     setBeerQuery('');
     setShowBeerForm(false);
+    // A record with a pubkey already lives on Nostr (the `source` tag is
+    // just provenance/attribution, e.g. seed data originally from catalog.beer).
+    const isNostrRecord = !!record.pubkey;
     toast({
-      title: record.source === 'catalog.beer' ? 'Added from catalog.beer' : 'Found on Nostr 🍺',
-      description: `${record.name}${record.style ? ` (${record.style})` : ''}`,
+      title: isNostrRecord ? 'Found on Nostr 🍺' : 'Added from catalog.beer (will be published)',
+      description: `${record.name}${record.style ? ` (${record.style})` : ''}${isNostrRecord && record.source === 'catalog.beer' ? ' — data originally from catalog.beer' : ''}`,
     });
   };
 
