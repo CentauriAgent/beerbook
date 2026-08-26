@@ -1,22 +1,26 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useSeoMeta } from '@unhead/react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Share2 } from 'lucide-react';
 import { LoginArea } from '@/components/auth/LoginArea';
 import { StarRating } from '@/components/StarRating';
 import { useBeerBySlug } from '@/hooks/useBeerSearch';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useAuthor } from '@/hooks/useAuthor';
+import { beerAddrEncode, decodeNip19, readerPath, type DecodedNip19 } from '@/lib/nip19links';
 
 /** Beer detail: the kind 31006 record + every check-in of this beer. */
-export default function BeerDetail() {
+export default function BeerDetail({ naddr: propNaddr }: { naddr?: Extract<DecodedNip19, { type: 'naddr' }> } = {}) {
   const { ref = '' } = useParams<{ ref: string }>();
   const navigate = useNavigate();
+  const [copied, setCopied] = useState(false);
 
-  // ref is a d slug or a 31006 event id
-  const slug = /^[0-9a-f]{64}$/.test(ref) ? undefined : ref;
+  // ref is an naddr1… (NIP-19 address, preferred) — legacy d-slug or 31006 event id still accepted
+  const decoded = decodeNip19(ref);
+  const naddr = propNaddr ?? (decoded?.type === 'naddr' ? decoded : undefined);
+  const slug = naddr ? naddr.d : (/^[0-9a-f]{64}$/.test(ref) ? undefined : ref);
   const eventId = /^[0-9a-f]{64}$/.test(ref) ? ref : undefined;
-  const { data: record, isLoading: recordLoading } = useBeerBySlug(slug);
+  const { data: record, isLoading: recordLoading } = useBeerBySlug(slug, naddr?.pubkey);
   const { data: checkIns, isLoading: feedLoading } = useBeerbookFeed();
 
   useSeoMeta({
@@ -29,18 +33,31 @@ export default function BeerDetail() {
     if (!checkIns) return [];
     return checkIns.filter((c) => {
       if (!c.beerRef) return false;
-      if (c.beerRef === ref) return true;
-      if (slug && c.beerRef === slug) return true;
+      if (c.beerRef === ref || c.beerRef === slug || c.beerRef === naddr?.d) return true;
       if (eventId && c.beerRef === eventId) return true;
       // match via the record's own event id
       if (record && (c.beerRef === record.d || c.beerRef === record.eventId)) return true;
       return false;
     });
-  }, [checkIns, ref, slug, eventId, record]);
+  }, [checkIns, ref, slug, eventId, naddr?.d, record]);
 
   const avg = beerCheckIns.length
     ? beerCheckIns.reduce((s, c) => s + c.rating, 0) / beerCheckIns.length
     : 0;
+
+  const share = async () => {
+    const addr = record ? beerAddrEncode(record.d, record.pubkey) : ref;
+    const url = `${window.location.origin}/beer/${addr}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${record?.name ?? 'Beer'} — Beerbook`, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch { /* cancelled */ }
+  };
 
   return (
     <div className="min-h-dvh bg-amber-50 pb-10">
@@ -49,7 +66,17 @@ export default function BeerDetail() {
           <ArrowLeft size={20} /> Back
         </button>
         <h1 className="font-serif text-lg font-bold text-amber-950">Beer</h1>
-        <LoginArea />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={share}
+            title="Share this beer"
+            className="flex items-center gap-1 rounded-full border border-amber-300 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100"
+          >
+            <Share2 size={14} /> {copied ? 'Copied!' : 'Share'}
+          </button>
+          <LoginArea />
+        </div>
       </header>
 
       <div className="mx-auto max-w-lg space-y-5 p-4">
@@ -114,7 +141,7 @@ function CheckInRow({ id, pubkey, rating, description, image, createdAt }: {
 }) {
   const { data: author } = useAuthor(pubkey);
   return (
-    <Link to={`/?page=${id}`} className="flex gap-3 rounded-xl border border-amber-200 bg-white p-3 shadow-sm hover:bg-amber-50">
+    <Link to={readerPath(id)} className="flex gap-3 rounded-xl border border-amber-200 bg-white p-3 shadow-sm hover:bg-amber-50">
       {image ? (
         <img src={image} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
       ) : (

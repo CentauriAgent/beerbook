@@ -55,6 +55,7 @@ export function Composer() {
   const [tagged, setTagged] = useState<string[]>([]);
   const [buddyQuery, setBuddyQuery] = useState('');
   const [imetaTag, setImetaTag] = useState<string[] | null>(null); // full imeta tag array
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   const debouncedBeerQuery = useDebounced(beerQuery, 350);
   const beerSearch = useBeerSearch(debouncedBeerQuery);
@@ -165,23 +166,30 @@ export function Composer() {
   };
 
   const onPhoto = async (file: File) => {
+    setPhotoError(null);
     try {
       const tags = await upload.mutateAsync(file);
+      const url = tags.find(([name]) => name === 'url')?.[1];
+      if (!url) throw new Error('No image URL returned by the upload server');
       setImetaTag(['imeta', ...tags.map((t) => t.join(' '))]);
     } catch (error) {
+      setImetaTag(null);
+      setPhotoError(error instanceof Error ? error.message : 'Upload failed');
       toast({
         title: 'Photo upload failed',
-        description: error instanceof Error ? error.message : 'Try again',
+        description: 'The page could not be saved with this photo. Try again — publishing is blocked until the photo uploads.',
         variant: 'destructive',
       });
     }
   };
 
-  const canPublish = user && beer.name.trim() && rating > 0;
+  // Photo is the page art — publishing is blocked until it uploads successfully.
+  const canPublish = user && beer.name.trim() && rating > 0 && !!previewImage;
 
   const onPublish = async () => {
     if (!canPublish) return;
     let beerRef = beer.beerRef;
+    let beerAuthor = beer.record?.pubkey;
     const beerName = beer.name.trim();
     const brewery = beer.brewery.trim();
 
@@ -199,8 +207,9 @@ export function Composer() {
         source: 'catalog.beer',
       });
       try {
-        await publish.mutateAsync(template);
+        const event = await publish.mutateAsync(template);
         beerRef = template.tags.find(([n]) => n === 'd')?.[1];
+        beerAuthor = event.pubkey;
       } catch {
         toast({ title: "Couldn't publish the beer record", description: 'Publishing check-in anyway', variant: 'destructive' });
       }
@@ -217,6 +226,7 @@ export function Composer() {
       imageTags: imetaTag ? [imetaTag] : [],
       taggedUsers: tagged,
       beerRef,
+      beerAuthor: beer.record?.pubkey,
     });
     try {
       await publish.mutateAsync({ kind: 1, content: template.content, tags: template.tags });
@@ -260,7 +270,7 @@ export function Composer() {
         <div>
           <Label className="mb-2 block font-serif text-amber-900">Beer photo *</Label>
           <label className="flex aspect-video w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-amber-300 bg-amber-100/50 text-amber-800 hover:bg-amber-100">
-            {upload.isPending ? 'Uploading…' : previewImage ? 'Change photo' : (
+            {upload.isPending ? 'Uploading… ⏳' : previewImage ? '✅ Photo uploaded — tap to change' : (
               <>
                 <Camera size={20} /> Add a photo
               </>
@@ -269,12 +279,17 @@ export function Composer() {
               type="file"
               accept="image/*"
               className="hidden"
+              disabled={upload.isPending}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) onPhoto(f);
+                e.target.value = '';
               }}
             />
           </label>
+          {photoError && (
+            <p className="mt-1 text-sm font-medium text-red-700">⚠️ Upload failed: {photoError} — pick the photo again. You can’t publish until it uploads.</p>
+          )}
         </div>
 
         {/* Beer search + selection */}

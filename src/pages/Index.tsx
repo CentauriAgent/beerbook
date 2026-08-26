@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { useSeoMeta } from '@unhead/react';
@@ -7,29 +7,44 @@ import { LoginArea } from '@/components/auth/LoginArea';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useFollows } from '@/hooks/useUserSearch';
+import { decodeNip19, profilePath } from '@/lib/nip19links';
 import { cn } from '@/lib/utils';
 
 export default function Index() {
   const [searchParams] = useSearchParams();
-  const deepLinkPage = searchParams.get('page');
+  const deepLinkPage = (() => {
+    const p = searchParams.get('page');
+    if (!p) return undefined;
+    if (/^[0-9a-f]{64}$/.test(p)) return p; // legacy hex deep link
+    const decoded = decodeNip19(p);
+    return decoded && (decoded.type === 'note' || decoded.type === 'nevent') ? decoded.eventId : undefined;
+  })();
 
   useSeoMeta({
     title: 'Beerbook 🍺📖',
     description: 'Your drinking history as a beautiful, ownable book. A Nostr-native beer journal.',
   });
 
-  const { data: checkIns, isLoading, isError, refetch } = useBeerbookFeed();
+  const { user } = useCurrentUser();
+  const { data: follows, isLoading: followsLoading } = useFollows();
+  const [global, setGlobal] = useState(false);
+  const navigate = useNavigate();
+
+  // Home book = check-ins from people you follow (plus your own). 🌍 toggles the global book.
+  const authorFilter = useMemo(() => {
+    if (global || !user || !follows) return undefined;
+    return Array.from(new Set([...follows, user.pubkey]));
+  }, [global, user, follows]);
+
+  const { data: checkIns, isLoading, isError, refetch } = useBeerbookFeed(
+    authorFilter ? { authors: authorFilter } : undefined,
+  );
+
   const startIndex = checkIns && deepLinkPage
     ? Math.max(0, checkIns.findIndex((c) => c.id === deepLinkPage))
     : 0;
-  const { user } = useCurrentUser();
-  const { data: follows } = useFollows();
-  const [trustedOnly, setTrustedOnly] = useState(false);
-  const navigate = useNavigate();
 
-  const visibleCheckIns = trustedOnly && follows
-    ? checkIns?.filter((c) => follows.has(c.pubkey))
-    : checkIns;
+  const feedLoading = isLoading || (!global && !!user && followsLoading);
 
   return (
     <div className="flex h-dvh flex-col bg-stone-900">
@@ -45,21 +60,21 @@ export default function Index() {
           {user && (
             <button
               type="button"
-              onClick={() => setTrustedOnly((v) => !v)}
-              title="Show only check-ins from people you follow"
+              onClick={() => setGlobal((v) => !v)}
+              title={global ? 'Show only check-ins from people you follow' : 'Show every check-in on the network'}
               className={cn(
                 'rounded-full border px-3 py-1 text-xs font-medium transition',
-                trustedOnly
+                !global
                   ? 'border-amber-400 bg-amber-500 text-amber-950'
                   : 'border-amber-800 bg-transparent text-amber-200/80 hover:text-amber-100',
               )}
             >
-              🤝 Trusted{trustedOnly ? '' : ' · All'}
+              {global ? '🌍 Discover' : '🤝 My Crew'}
             </button>
           )}
           {user && (
             <Link
-              to={`/u/${user.pubkey}`}
+              to={profilePath(user.pubkey)}
               className="text-xs text-amber-200/80 underline-offset-2 hover:text-amber-100 hover:underline"
             >
               My Book
@@ -79,7 +94,7 @@ export default function Index() {
 
       {/* Reader */}
       <main className="relative flex-1 overflow-hidden">
-        {isLoading ? (
+        {feedLoading ? (
           <div className="flex h-full items-center justify-center bg-amber-950">
             <div className="animate-pulse text-center">
               <span className="text-5xl">📖</span>
@@ -98,8 +113,21 @@ export default function Index() {
               Try again
             </button>
           </div>
+        ) : !global && user && checkIns && checkIns.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 bg-amber-950 px-6 text-center">
+            <span className="text-4xl">📖</span>
+            <p className="font-serif text-amber-200">Your crew hasn't written any pages yet.</p>
+            <p className="text-xs text-amber-200/60">Follow more beer lovers on Nostr, or explore the global book.</p>
+            <button
+              type="button"
+              onClick={() => setGlobal(true)}
+              className="rounded-full bg-amber-500 px-4 py-1.5 text-sm font-semibold text-amber-950"
+            >
+              🌍 Discover the global book
+            </button>
+          </div>
         ) : (
-          <PageReader checkIns={visibleCheckIns ?? []} startIndex={startIndex} />
+          <PageReader checkIns={checkIns ?? []} startIndex={startIndex} />
         )}
       </main>
 

@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Maximize2, Minimize2, Zap } from 'lucide-react';
+import { Maximize2, Minimize2, Share2, Zap } from 'lucide-react';
 import { StarRating } from '@/components/StarRating';
 import { useZap } from '@/hooks/useZap';
 import { useAuthor } from '@/hooks/useAuthor';
 import type { BeerCheckIn } from '@/lib/beerbook';
+import { beerPath, profilePath, readerPath } from '@/lib/nip19links';
 import { cn } from '@/lib/utils';
 
 interface BeerPageProps {
@@ -23,6 +24,20 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
     if (metadata?.picture) return metadata.picture;
     return undefined;
   }, [metadata?.picture]);
+
+  const beerLink = beerPath(checkIn.beerRef, checkIn.beerAuthor);
+
+  const share = async () => {
+    const url = `${window.location.origin}${readerPath(checkIn.id)}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: `${checkIn.beer} — Beerbook`, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+    } catch {
+      /* user cancelled */ }
+  };
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-amber-950 select-none">
@@ -52,9 +67,9 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
         <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-14 pt-24">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              {checkIn.beerRef ? (
+              {beerLink ? (
                 <Link
-                  to={`/beer/${checkIn.beerRef}`}
+                  to={beerLink}
                   onClick={(e) => e.stopPropagation()}
                   className="truncate text-2xl font-bold leading-tight text-white drop-shadow-lg underline-offset-4 hover:underline"
                 >
@@ -116,7 +131,7 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
           {interactive && (
             <div className="mt-3 flex items-center justify-between">
               <Link
-                to={`/u/${checkIn.pubkey}`}
+                to={profilePath(checkIn.pubkey)}
                 onClick={(e) => e.stopPropagation()}
                 className="flex items-center gap-2 text-xs text-amber-100/80 hover:text-amber-50"
               >
@@ -127,17 +142,30 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
                 )}
                 <span>{metadata?.display_name || metadata?.name || `${checkIn.pubkey.slice(0, 8)}…`}</span>
               </Link>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  zap.mutate({ pubkey: checkIn.pubkey, eventId: checkIn.id, amount: 21 });
-                }}
-                disabled={zap.isPending}
-                className="flex items-center gap-1 rounded-full bg-amber-500/90 px-3 py-1 text-xs font-semibold text-amber-950 transition hover:bg-amber-400 disabled:opacity-50"
-              >
-                <Zap size={14} /> {zap.isPending ? 'Zapping…' : 'Zap 21'}
-              </button>
+              <span className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    share();
+                  }}
+                  aria-label="Share this page"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/35 text-amber-100 transition hover:bg-black/55"
+                >
+                  <Share2 size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    zap.mutate({ pubkey: checkIn.pubkey, eventId: checkIn.id, amount: 21 });
+                  }}
+                  disabled={zap.isPending}
+                  className="flex items-center gap-1 rounded-full bg-amber-500/90 px-3 py-1 text-xs font-semibold text-amber-950 transition hover:bg-amber-400 disabled:opacity-50"
+                >
+                  <Zap size={14} /> {zap.isPending ? 'Zapping…' : 'Zap 21'}
+                </button>
+              </span>
             </div>
           )}
         </div>

@@ -69,20 +69,22 @@ export function useBeerSearch(query: string) {
   });
 }
 
-/** Look up the canonical record by d slug (or 31006 event id). */
-export function useBeerBySlug(ref: string | undefined) {
+/** Look up the canonical record by d slug (optionally scoped to the naddr author) or 31006 event id. */
+export function useBeerBySlug(ref: string | undefined, author?: string) {
   const { nostr } = useNostr();
 
   return useQuery<BeerRecord | undefined>({
-    queryKey: ['beer', ref ?? ''],
+    queryKey: ['beer', ref ?? '', author ?? ''],
     enabled: !!ref,
     staleTime: 300_000,
     queryFn: async () => {
       const isId = /^[0-9a-f]{64}$/.test(ref!);
-      const events = await nostr.query(
-        [isId ? { kinds: [31006], ids: [ref!], limit: 20 } : { kinds: [31006], '#d': [ref!], limit: 20 }],
-        { signal: AbortSignal.timeout(5000) },
-      );
+      const base: any = isId
+        ? { kinds: [31006], ids: [ref!], limit: 20 }
+        : author
+          ? { kinds: [31006], authors: [author], '#d': [ref!], limit: 20 }
+          : { kinds: [31006], '#d': [ref!], limit: 20 };
+      const events = await nostr.query([base], { signal: AbortSignal.timeout(5000) });
       return pickCanonicalBeer(events.map(parseBeerEvent).filter(Boolean) as BeerRecord[]);
     },
   });

@@ -1,42 +1,50 @@
-import { nip19 } from 'nostr-tools';
-import { useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Profile } from './Profile';
+import BeerDetail from './BeerDetail';
 import NotFound from './NotFound';
+import { decodeNip19, readerPath } from '@/lib/nip19links';
 
+/**
+ * Catch-all NIP-19 deep-link route: /npub1…, /nprofile1…, /note1…, /nevent1…, /naddr1…
+ * Renders the right view without ever exposing raw hex identifiers in URLs.
+ */
 export function NIP19Page() {
   const { nip19: identifier } = useParams<{ nip19: string }>();
+  const navigate = useNavigate();
 
-  if (!identifier) {
+  const decoded = identifier ? decodeNip19(identifier) : null;
+
+  // Notes/events → reader deep link on the home book
+  useEffect(() => {
+    if (decoded && (decoded.type === 'note' || decoded.type === 'nevent')) {
+      navigate(readerPath(decoded.eventId), { replace: true });
+    }
+  }, [decoded, navigate]);
+
+  if (!decoded) {
     return <NotFound />;
   }
 
-  let decoded;
-  try {
-    decoded = nip19.decode(identifier);
-  } catch {
-    return <NotFound />;
-  }
-
-  const { type } = decoded;
-
-  switch (type) {
+  switch (decoded.type) {
     case 'npub':
     case 'nprofile':
-      // AI agent should implement profile view here
-      return <div>Profile placeholder</div>;
+      return <Profile pubkey={decoded.pubkey} />;
 
     case 'note':
-      // AI agent should implement note view here
-      return <div>Note placeholder</div>;
-
     case 'nevent':
-      // AI agent should implement event view here
-      return <div>Event placeholder</div>;
+      return (
+        <div className="flex min-h-dvh items-center justify-center bg-amber-950 font-serif text-amber-200">
+          Opening the page… 📖
+        </div>
+      );
 
     case 'naddr':
-      // AI agent should implement addressable event view here
-      return <div>Addressable event placeholder</div>;
+      // Beerbook addressable entity: kind 31006 beer records
+      if (decoded.kind === 31006) return <BeerDetail naddr={decoded} />;
+      return <NotFound />;
 
     default:
       return <NotFound />;
   }
-} 
+}

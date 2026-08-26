@@ -4,15 +4,20 @@ import { nip19 } from 'nostr-tools';
 import { useAuthor } from '@/hooks/useAuthor';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { BeerPage } from '@/components/BeerPage';
+import { readerPath } from '@/lib/nip19links';
 
 /** Profile: the user's check-ins as a book grid. */
-export function Profile() {
+export function Profile({ pubkey: propPubkey }: { pubkey?: string }) {
   const { npub } = useParams();
   let pubkey: string | undefined;
-  try {
-    if (npub?.startsWith('npub1')) pubkey = nip19.decode(npub).data as string;
-    else if (npub && /^[0-9a-f]{64}$/.test(npub)) pubkey = npub;
-  } catch { /* invalid */ }
+  if (propPubkey) {
+    pubkey = propPubkey;
+  } else {
+    try {
+      if (npub?.startsWith('npub1')) pubkey = nip19.decode(npub).data as string;
+      else if (npub && /^[0-9a-f]{64}$/.test(npub)) pubkey = npub;
+    } catch { /* invalid */ }
+  }
 
   useSeoMeta({ title: pubkey ? 'Book — Beerbook 🍺📖' : 'Not found — Beerbook' });
 
@@ -26,7 +31,7 @@ export function Profile() {
       {/* Book cover header */}
       <div className="relative bg-gradient-to-br from-amber-800 via-amber-900 to-stone-900 px-6 pb-8 pt-10 text-center">
         <Link to="/" className="absolute left-3 top-3 text-xs text-amber-200/70 hover:text-amber-100">
-          ← Back to feed
+          ← Back to your crew
         </Link>
         {metadata?.picture ? (
           <img
@@ -67,7 +72,7 @@ export function Profile() {
             {checkIns.map((c) => (
               <Link
                 key={c.id}
-                to={`/?page=${c.id}`}
+                to={readerPath(c.id)}
                 className="group block aspect-[3/4] overflow-hidden rounded-lg border-2 border-amber-200 shadow-md transition hover:-translate-y-1 hover:shadow-xl"
               >
                 <BeerPage checkIn={c} interactive={false} />

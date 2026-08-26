@@ -1,5 +1,26 @@
 # Beerbook — Phase 1 + 2 Notes
 
+## Bugfix round (Aug 26, 2026) — NIP-19 routing, upload gating, home book = follows
+
+Deployed to https://beerbook-test.surge.sh.
+
+### 1. NIP-19 everywhere (no hex in URLs)
+- New `src/lib/nip19links.ts`: `profilePath` (/u/npub1…), `beerPath` (/beer/naddr1… — naddr = kind 31006 + d + author pubkey), `readerPath` (/?page=note1…), `decodeNip19` (npub/nprofile/note/nevent/naddr).
+- **Routes**: `/u/:npub` (npub primary, legacy hex still parsed); `/beer/:ref` accepts naddr1 (preferred), legacy d-slug/hex event-id; catch-all `/:nip19` (NIP19Page) now actually routes: npub/nprofile → Profile, note/nevent → redirect to `/?page=note1…`, naddr kind 31006 → BeerDetail, else 404.
+- **Link generation**: BeerPage author link + Index “My Book” → npub; beer-name link → naddr via new `beer_pubkey` tag on check-ins (records the 31006 author so we can encode naddr; d-slug fallback kept for old events); profile tiles + BeerDetail check-in rows → `/?page=note1…` (Index decodes note/nevent/legacy-hex).
+- **Share buttons**: new Share2 on each BeerPage (copies/Web-Shares `origin/?page=note1…`) and on BeerDetail (copies `origin/beer/naddr1…`).
+
+### 2. Image upload — root cause & fix
+- **Root cause found**: the upload path itself works — verified live with a real signed event: Blossom BUD-02 PUT to blossom.ditto.pub returned HTTP 201 + nip94 tags, and nostr.build NIP-98 upload succeeded (both under Centauri's key). The actual bug was UX/gating: **publishing was never blocked when the photo upload failed** (`canPublish` didn't require an image). When the Blossom auth (kind 24242) prompt is denied/unsupported by the signer, the upload throws — one easily-missed toast, then the user publishes a photo-less kind 1 → “prompted by signer but no image on page”. Verified end-to-end that an imeta-tagged event round-trips through the exact feed filters (`#t=beerbook` + authors).
+- **Fixes**: `useUploadFile` now (a) validates a `url` tag came back, (b) falls back to nostr.build (NostrBuildUploader, NIP-98) when ALL blossom servers fail; Composer shows upload progress (⏳/✅), a persistent red error message on failure, clears the stale photo state, and **blocks publish until a photo is uploaded** (photo is required per plan). Check-ins also tag `beer_pubkey` now.
+
+### 3. Home book = follows' book
+- Index now defaults to **🤝 My Crew**: kind 3 follows ∪ you → relay-side `authors` filter on the #beerbook feed, rendered in the same swipeable PageReader. 🌍 **Discover** toggle switches to the global book (also default when logged out). Empty crew state offers the Discover toggle.
+
+---
+
+# Previous notes (Phase 1 + 2)
+
 Status: Phase 2 (inventory, search, WOT) deployed to **https://beerbook-test.surge.sh** (test hosting only).
 Stack: MKStack (React 19 + Vite + Tailwind 4 + shadcn/ui + Nostrify + TanStack Query) + vite-plugin-pwa.
 
