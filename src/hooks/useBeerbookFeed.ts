@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNostr } from '@nostrify/react';
-import type { NostrEvent, NostrFilter } from '@nostrify/nostrify';
+import type { NostrFilter } from '@nostrify/nostrify';
 import { NSchema } from '@nostrify/nostrify';
 import { parseCheckIn, type BeerCheckIn } from '@/lib/beerbook';
 

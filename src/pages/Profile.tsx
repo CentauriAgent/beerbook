@@ -4,7 +4,6 @@ import { nip19 } from 'nostr-tools';
 import { useAuthor } from '@/hooks/useAuthor';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { BeerPage } from '@/components/BeerPage';
-import { StarRating } from '@/components/StarRating';
 
 /** Profile: the user's check-ins as a book grid. */
 export function Profile() {

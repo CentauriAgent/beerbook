@@ -18,6 +18,7 @@ export interface BeerCheckIn {
   location?: string;
   image?: string; // url
   taggedUsers: string[]; // pubkeys
+  beerRef?: string; // event-id or d-slug of kind 31006 beer record
   createdAt: number;
 }
 
@@ -46,6 +47,7 @@ export function parseCheckIn(event: NostrEvent): BeerCheckIn | null {
     if (m) image = m[0];
   }
   const taggedUsers = event.tags.filter(([n]) => n === 'p').map(([, v]) => v).filter(Boolean);
+  const beerRef = tag('beer');
 
   // Parse beer/brewery from structured tags first, then from content fallback.
   let beer = tag('beer_name');
@@ -73,6 +75,7 @@ export function parseCheckIn(event: NostrEvent): BeerCheckIn | null {
     location,
     image,
     taggedUsers,
+    beerRef,
     createdAt: event.created_at,
   };
 }
@@ -87,6 +90,7 @@ export function buildCheckInEvent(input: {
   location?: string;
   imageTags?: string[][]; // full imeta tags, e.g. [['imeta', 'url https://…', 'x abc…']]
   taggedUsers: string[];
+  beerRef?: string; // event-id or d-slug of the beer record
 }): { kind: 1; content: string; tags: string[][] } {
   const lines: string[] = [];
   lines.push(`🍺 Drinking ${input.beer}${input.brewery ? ` by ${input.brewery}` : ''} — ${input.rating}★`);
@@ -103,6 +107,7 @@ export function buildCheckInEvent(input: {
     ['rating', String(input.rating)],
   ];
   if (input.brewery) tags.push(['brewery', input.brewery]);
+  if (input.beerRef) tags.push(['beer', input.beerRef]);
   tags.push(['beer_name', input.beer]);
   for (const f of input.flavors) tags.push(['flavor', f.toLowerCase()]);
   if (input.serving) tags.push(['serving', input.serving]);

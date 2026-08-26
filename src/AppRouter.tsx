@@ -5,6 +5,7 @@ import { Composer } from "@/components/Composer";
 import Index from "./pages/Index";
 import { Profile } from "./pages/Profile";
 import { NIP19Page } from "./pages/NIP19Page";
+import BeerDetail from "./pages/BeerDetail";
 import NotFound from "./pages/NotFound";
 
 export function AppRouter() {
@@ -15,6 +16,7 @@ export function AppRouter() {
         <Route path="/" element={<Index />} />
         <Route path="/new" element={<Composer />} />
         <Route path="/u/:npub" element={<Profile />} />
+        <Route path="/beer/:ref" element={<BeerDetail />} />
         {/* NIP-19 route for npub1, note1, naddr1, nevent1, nprofile1 */}
         <Route path="/:nip19" element={<NIP19Page />} />
         {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

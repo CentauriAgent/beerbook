@@ -6,6 +6,8 @@ import { PageReader } from '@/components/PageReader';
 import { LoginArea } from '@/components/auth/LoginArea';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useFollows } from '@/hooks/useUserSearch';
+import { cn } from '@/lib/utils';
 
 export default function Index() {
   const [searchParams] = useSearchParams();
@@ -21,8 +23,13 @@ export default function Index() {
     ? Math.max(0, checkIns.findIndex((c) => c.id === deepLinkPage))
     : 0;
   const { user } = useCurrentUser();
+  const { data: follows } = useFollows();
+  const [trustedOnly, setTrustedOnly] = useState(false);
   const navigate = useNavigate();
-  const [showMenu, setShowMenu] = useState(false);
+
+  const visibleCheckIns = trustedOnly && follows
+    ? checkIns?.filter((c) => follows.has(c.pubkey))
+    : checkIns;
 
   return (
     <div className="flex h-dvh flex-col bg-stone-900">
@@ -31,11 +38,25 @@ export default function Index() {
         <button
           type="button"
           className="flex items-center gap-2 text-left"
-          onClick={() => setShowMenu((v) => !v)}
         >
           <span className="font-serif text-xl font-bold text-amber-100">🍺 Beerbook</span>
         </button>
         <div className="flex items-center gap-2">
+          {user && (
+            <button
+              type="button"
+              onClick={() => setTrustedOnly((v) => !v)}
+              title="Show only check-ins from people you follow"
+              className={cn(
+                'rounded-full border px-3 py-1 text-xs font-medium transition',
+                trustedOnly
+                  ? 'border-amber-400 bg-amber-500 text-amber-950'
+                  : 'border-amber-800 bg-transparent text-amber-200/80 hover:text-amber-100',
+              )}
+            >
+              🤝 Trusted{trustedOnly ? '' : ' · All'}
+            </button>
+          )}
           {user && (
             <Link
               to={`/u/${user.pubkey}`}
@@ -78,7 +99,7 @@ export default function Index() {
             </button>
           </div>
         ) : (
-          <PageReader checkIns={checkIns ?? []} startIndex={startIndex} />
+          <PageReader checkIns={visibleCheckIns ?? []} startIndex={startIndex} />
         )}
       </main>
 

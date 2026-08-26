@@ -52,14 +52,24 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
         <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-14 pt-24">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="truncate text-2xl font-bold leading-tight text-white drop-shadow-lg">
-                {checkIn.beer}
-              </h2>
+              {checkIn.beerRef ? (
+                <Link
+                  to={`/beer/${checkIn.beerRef}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="truncate text-2xl font-bold leading-tight text-white drop-shadow-lg underline-offset-4 hover:underline"
+                >
+                  {checkIn.beer}
+                </Link>
+              ) : (
+                <h2 className="truncate text-2xl font-bold leading-tight text-white drop-shadow-lg">
+                  {checkIn.beer}
+                </h2>
+              )}
               {checkIn.brewery && (
                 <p className="truncate font-serif text-base italic text-amber-200">{checkIn.brewery}</p>
               )}
             </div>
-            <StarRating value={checkIn.rating} size={20} className="shrink-0 pt-1" />
+            <StarRating value={checkIn.rating} size={26} className="shrink-0" />
           </div>
 
           {checkIn.description && (

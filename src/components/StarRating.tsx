@@ -8,9 +8,14 @@ interface StarRatingProps {
   className?: string;
 }
 
-export function StarRating({ value, onChange, size = 24, className }: StarRatingProps) {
+/**
+ * High-contrast star rating designed to sit on top of photos:
+ * - filled: solid amber with a dark outline + glow so it reads on light AND dark photos
+ * - empty: translucent amber-gold with a dark rim, never plain white-on-white
+ */
+export function StarRating({ value, onChange, size = 28, className }: StarRatingProps) {
   return (
-    <div className={cn('flex items-center gap-1', className)} role="radiogroup" aria-label="Rating">
+    <div className={cn('flex items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 backdrop-blur-sm', className)} role="radiogroup" aria-label="Rating">
       {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
@@ -27,8 +32,13 @@ export function StarRating({ value, onChange, size = 24, className }: StarRating
         >
           <Star
             size={size}
-            className={n <= value ? 'fill-amber-400 text-amber-400 drop-shadow' : 'text-white/60'}
-            strokeWidth={1.5}
+            className={cn(
+              'drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]',
+              n <= value
+                ? 'fill-amber-400 text-amber-700'
+                : 'text-amber-200/90',
+            )}
+            strokeWidth={n <= value ? 2 : 1.75}
           />
         </button>
       ))}
