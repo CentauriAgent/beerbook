@@ -22,7 +22,8 @@ export function StylePicker({
   const [query, setQuery] = useState('');
 
   const results = useMemo(() => searchStyles(query, 60), [query]);
-  const srm = value ? srmRangeLabel(styleById(value.id)) : null;
+  const style = value ? styleById(value.id) : undefined;
+  const srm = style ? srmRangeLabel(style) : null;
 
   return (
     <div className="relative">

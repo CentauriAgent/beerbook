@@ -19,6 +19,7 @@ import { useUserSearch } from '@/hooks/useUserSearch';
 import { useAuthor } from '@/hooks/useAuthor';
 import { FLAVORS, SERVINGS, buildCheckInEvent, type BeerCheckIn } from '@/lib/beerbook';
 import { buildBeerEvent, type BeerRecord } from '@/lib/beers';
+import { normalizeBrewery, breweryWarning } from '@/lib/breweries';
 import { getGeoPosition, searchPlaces, findNearbyPlaces, placeLabel, type Place } from '@/lib/placeSearch';
 import { StylePicker, type StylePickerValue } from '@/components/StylePicker';
 import { cn } from '@/lib/utils';
