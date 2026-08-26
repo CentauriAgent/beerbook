@@ -72,27 +72,29 @@ export function BeerPage({ checkIn, interactive = true }: BeerPageProps) {
         )}
       >
         <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent px-5 pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-24">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              {beerLink ? (
-                <Link
-                  to={beerLink}
-                  onClick={(e) => e.stopPropagation()}
-                  className="truncate text-2xl font-bold leading-tight text-white drop-shadow-lg underline-offset-4 hover:underline"
-                >
-                  {checkIn.beer}
-                </Link>
-              ) : (
-                <h2 className="truncate text-2xl font-bold leading-tight text-white drop-shadow-lg">
-                  {checkIn.beer}
-                </h2>
-              )}
-              {checkIn.brewery && (
-                <p className="truncate font-serif text-base italic text-amber-200">{checkIn.brewery}</p>
-              )}
+          <div className="flex flex-col gap-1.5">
+              <div className="min-w-0">
+                {beerLink ? (
+                  <Link
+                    to={beerLink}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-2xl font-bold leading-tight text-white drop-shadow-lg underline-offset-4 hover:underline"
+                  >
+                    {checkIn.beer}
+                  </Link>
+                ) : (
+                  <h2 className="text-2xl font-bold leading-tight text-white drop-shadow-lg">
+                    {checkIn.beer}
+                  </h2>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {checkIn.brewery && (
+                  <p className="min-w-0 truncate font-serif text-base italic text-amber-200">{checkIn.brewery}</p>
+                )}
+                <StarRating value={checkIn.rating} size={26} className="ml-auto shrink-0" />
+              </div>
             </div>
-            <StarRating value={checkIn.rating} size={26} className="shrink-0" />
-          </div>
 
           {checkIn.description && (
             <p className="mt-2 line-clamp-3 font-serif text-sm leading-relaxed text-amber-50/90">
