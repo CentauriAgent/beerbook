@@ -65,7 +65,7 @@ const reset = async (i = 0) => {
   await page.waitForFunction(() => document.getElementById('index-display') !== null, { timeout: 10000 });
   await page.waitForTimeout(400);
   for (let k = 0; k < i; k++) { await page.keyboard.press('ArrowRight'); await page.waitForTimeout(800); }
-  await page.evaluate(() => { window.__swipeEvents = []; });
+  await page.evaluate(() => { window.__swipeEvents = []; window.__pullRefreshes = 0; window.__pullState = {}; });
 };
 
 /** Raw touch drag with per-step pacing. Returns after touchEnd. */
@@ -300,6 +300,75 @@ await reset(1);
   await page.click('#next-btn', { position: { x: 30, y: H / 2 }, force: true });
   await page.waitForTimeout(600);
   check('touch context: edge zones stay inert', (await getIndex()) === idx0);
+}
+
+// ---- 7. Custom pull-to-refresh (shared hook, real CDP touch) ----
+// Threshold: 100px displayed at 0.5x resistance → 200px of finger.
+{
+  // (b) below threshold (130px raw → 65px displayed): springs back, no refresh
+  await reset(1);
+  await page.evaluate(() => { window.__swipeEvents = []; });
+  await drag(cdp, { from: { x: W / 2, y: 300 }, to: { x: W / 2, y: 430 }, steps: 10, stepMs: 40 });
+  await page.waitForTimeout(600);
+  let r = await page.evaluate(() => window.__pullRefreshes ?? 0);
+  check('pull below threshold: NO refresh fires', r === 0, `refreshes=${r}`);
+  check('pull below threshold: index unchanged', (await getIndex()) === 1);
+  let g = await getGestures();
+  check('pull below threshold logged pull-start + pull-spring-back',
+    g.some((e) => e.type === 'pull-start') && g.some((e) => e.type === 'pull-spring-back'), JSON.stringify(g));
+  let ps = await page.evaluate(() => window.__pullState ?? {});
+  check('sub-threshold pull state settled (armed=false, refreshing=false)', ps.armed === false && ps.refreshing === false, JSON.stringify(ps));
+
+  // (a) above threshold (300px raw → 150px displayed): armed mid-pull,
+  //     screenshot of the indicator, then refresh fires and settles
+  await reset(1);
+  const rest = await page.screenshot();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: W / 2, y: 300 }] });
+  await new Promise((r2) => setTimeout(r2, 60));
+  for (let i = 1; i <= 10; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: W / 2, y: Math.round(300 + 30 * i) }] });
+    await new Promise((r2) => setTimeout(r2, 40));
+  }
+  ps = await page.evaluate(() => window.__pullState ?? {});
+  check('deep pull: armed mid-gesture', ps.armed === true && ps.dist >= 100, JSON.stringify(ps));
+  const mid = await page.screenshot();
+  fs.writeFileSync(path.join(SHOTS, 'e2e-pull-mid.png'), mid);
+  const dPull = diffPct(rest, mid);
+  check('indicator visible mid-pull (pixels differ from rest)', dPull > 0.2, `diff ${dPull.toFixed(2)}%`);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await page.waitForTimeout(250); // inside the 500ms simulated refetch
+  ps = await page.evaluate(() => window.__pullState ?? {});
+  check('released at threshold: spinner spinning (refreshing)', ps.refreshing === true, JSON.stringify(ps));
+  await page.waitForTimeout(900); // refetch settles + settle animation
+  r = await page.evaluate(() => window.__pullRefreshes ?? 0);
+  check('released at threshold: refresh fired exactly once', r === 1, `refreshes=${r}`);
+  ps = await page.evaluate(() => window.__pullState ?? {});
+  check('refresh settled (refreshing=false, settledAt recorded)', ps.refreshing === false && typeof ps.settledAt === 'number', JSON.stringify(ps));
+  check('reader still on same page after refresh', (await getIndex()) === 1);
+  g = await getGestures();
+  check('refresh logged as refresh gesture', g.some((e) => e.type === 'refresh'), JSON.stringify(g.slice(-3)));
+
+  // (d) upward drag: nothing happens
+  await reset(1);
+  await page.evaluate(() => { window.__swipeEvents = []; window.__pullRefreshes = 0; });
+  await drag(cdp, { from: { x: W / 2, y: 520 }, to: { x: W / 2, y: 400 }, steps: 8, stepMs: 40 });
+  await page.waitForTimeout(500);
+  r = await page.evaluate(() => window.__pullRefreshes ?? 0);
+  g = await getGestures();
+  check('up-drag: no refresh, logged as vertical-scroll', r === 0 && g.some((e) => e.type === 'vertical-scroll') && !g.some((e) => e.type === 'pull-start'), `refreshes=${r} gestures=${JSON.stringify(g)}`);
+  check('up-drag: index unchanged', (await getIndex()) === 1);
+
+  // (c) horizontal + diagonal-downward swipes never fire the refresh
+  //     (page-turn behavior already asserted in §3b; here: refresh counter)
+  await reset(0);
+  await page.evaluate(() => { window.__pullRefreshes = 0; });
+  await drag(cdp, { from: { x: 340, y: H / 2 }, to: { x: 50, y: H / 2 }, steps: 5, stepMs: 16 });
+  await page.waitForTimeout(900);
+  await drag(cdp, { from: { x: 340, y: 300 }, to: { x: 60, y: 460 }, steps: 8, stepMs: 30 });
+  await page.waitForTimeout(1000);
+  r = await page.evaluate(() => window.__pullRefreshes ?? 0);
+  check('horizontal + diagonal-down swipes: no refresh triggered', r === 0, `refreshes=${r}`);
+  check('horizontal + diagonal-down swipes: pages still turned', (await getIndex()) >= 1);
 }
 
 await context.close();

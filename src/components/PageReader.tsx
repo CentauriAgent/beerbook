@@ -1,41 +1,38 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BeerPage } from '@/components/BeerPage';
 import { PageTurn, type PageTurnHandle } from '@/components/PageTurn';
+import { PullToRefreshIndicator, type PullIndicatorHandle } from '@/components/PullToRefreshIndicator';
+import { useReaderGestures } from '@/hooks/useReaderGestures';
 import type { BeerCheckIn } from '@/lib/beerbook';
-import type { FoldCorner, FoldDirection } from '@/lib/page-fold';
 import { playPaperCrackle } from '@/lib/paper-crackle';
 import { cn } from '@/lib/utils';
 
 interface PageReaderProps {
   checkIns: BeerCheckIn[];
   startIndex?: number;
+  /** Called when a deliberate pull-to-refresh arms and releases.
+   *  The indicator spins until the returned promise settles. */
+  onRefresh?: () => Promise<unknown>;
 }
 
-/** Axis-lock dead zone (px) before a gesture is treated as a turn. */
-const LOCK_EPSILON_PX = 8;
-/** Commit when the fold has progressed this far (%, out of 100). */
-const COMMIT_PROGRESS = 30;
-/** Or when released with this velocity toward the turn (px/ms). */
-const COMMIT_VELOCITY = 0.4;
-
 /**
- * Book page reader with our OWN page-turn engine.
+ * Book page reader with our OWN page-turn engine (see
+ * `hooks/useReaderGestures` for the gesture layer: x/y axis lock with
+ * finger-tracked folds, plus a custom pull-to-refresh on the y branch so
+ * the reader can refresh WITHOUT resurrecting the browser's native
+ * pull-to-refresh — which previously fought the horizontal page turns).
  *
- * The fold geometry is ported from StPageFlip (see `src/lib/page-fold.ts`)
- * but the gesture layer, animation and rendering are ours — pointer events
- * with x/y axis lock (`touch-action: pan-y` lets vertical drags fall
- * through to page scroll), finger-tracked fold anchored at the corner grab
- * regions, release physics (commit ≥30% progress or flick velocity, else
- * spring back with a slight overshoot), and programmatic turns (keyboard,
- * edge tap zones) reusing the same animation path with a synthetic drag.
+ * The current page is preserved across a feed refresh by check-in id (or
+ * clamped if the page disappeared).
  */
-export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
+export function PageReader({ checkIns, startIndex = 0, onRefresh }: PageReaderProps) {
   const total = checkIns.length;
   const clampedStart = total > 0 ? Math.min(Math.max(0, startIndex), total - 1) : 0;
 
   const [index, setIndex] = useState(clampedStart);
   const containerRef = useRef<HTMLDivElement>(null);
   const turnRef = useRef<PageTurnHandle>(null);
+  const indicatorRef = useRef<PullIndicatorHandle>(null);
 
   const indexRef = useRef(index);
   const totalRef = useRef(total);
@@ -44,10 +41,20 @@ export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
     totalRef.current = total;
   }, [index, total]);
 
-  // Keep the index valid when the page set shrinks.
+  // Stay on the SAME PAGE (by check-in id) across a feed refresh: new pages
+  // landing in front shift the array, so re-resolve the index. If the page
+  // vanished (deleted), clamp to the nearest surviving page. This effect
+  // must run BEFORE the lastId update below (declaration order = run order).
+  const lastIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (indexRef.current > total - 1) setIndex(Math.max(0, total - 1));
-  }, [total]);
+    const prevId = lastIdRef.current;
+    if (prevId === undefined) return; // first render
+    const j = checkIns.findIndex((c) => c.id === prevId);
+    setIndex(j >= 0 ? j : Math.min(indexRef.current, Math.max(0, checkIns.length - 1)));
+  }, [checkIns]);
+  useEffect(() => {
+    lastIdRef.current = checkIns[index]?.id;
+  }, [checkIns, index]);
 
   // Paper crinkle on turn commit (user gesture → AudioContext resume ok).
   const lastCrunched = useRef(-1);
@@ -74,150 +81,15 @@ export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, [goNext, goPrev]);
 
-  // --- Gesture layer (ours, proven): pointerdown → axis lock → fold -------
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    interface Drag {
-      id: number;
-      startX: number;
-      startY: number;
-      startT: number;
-      lastX: number;
-      lastY: number;
-      lastT: number;
-      axis: null | 'x' | 'y';
-      direction: FoldDirection | null;
-    }
-    let drag: Drag | null = null;
-
-    const localPoint = (e: PointerEvent) => {
-      const r = container.getBoundingClientRect();
-      return { x: e.clientX - r.left, y: e.clientY - r.top };
-    };
-
-    const logGesture = (type: string, dx: number, dt: number, extra?: Record<string, number>) => {
-      const w = window as typeof window & {
-        __swipeEvents?: { type: string; dx: number; dt: number; progress?: number; vx?: number }[];
-      };
-      w.__swipeEvents ??= [];
-      w.__swipeEvents.push({ type, dx: Math.round(dx), dt: Math.round(dt), ...extra });
-    };
-
-    // While an x-axis page-turn drag is active, cancel the browser's
-    // touch scrolling (pull-to-refresh / overscroll) — the listener MUST
-    // be non-passive for preventDefault to be honored.
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.cancelable && drag?.axis === 'x') e.preventDefault();
-    };
-
-    const detach = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onCancel);
-    };
-
-    const startTurnDrag = (d: Drag, e: PointerEvent) => {
-      const turn = turnRef.current;
-      if (!turn) return;
-      const p = localPoint(e);
-      const startXLocal = p.x - (e.clientX - d.startX); // local x at pointerdown
-      // Corner-grab regions: right half → next (right corner lifts left),
-      // left half → prev (left page sweeps in). Corner top/bottom by y.
-      const direction: FoldDirection = startXLocal > container.clientWidth / 2 ? 'forward' : 'back';
-      const corner: FoldCorner = p.y >= container.clientHeight / 2 ? 'bottom' : 'top';
-      d.direction = direction;
-      turn.startFold(p, direction, corner);
-    };
-
-    const onDown = (e: PointerEvent) => {
-      if (drag) return;
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      drag = {
-        id: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        startT: performance.now(),
-        lastX: e.clientX,
-        lastY: e.clientY,
-        lastT: performance.now(),
-        axis: null,
-        direction: null,
-      };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onCancel);
-    };
-
-    const onMove = (e: PointerEvent) => {
-      const d = drag;
-      if (!d || e.pointerId !== d.id) return;
-      d.lastX = e.clientX;
-      d.lastY = e.clientY;
-      d.lastT = performance.now();
-
-      const dx = e.clientX - d.startX;
-      const dy = e.clientY - d.startY;
-
-      if (d.axis === null) {
-        if (Math.abs(dx) < LOCK_EPSILON_PX && Math.abs(dy) < LOCK_EPSILON_PX) return;
-        d.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
-        if (d.axis === 'x') startTurnDrag(d, e);
-        // axis 'y' → released to vertical scroll (pan-y); fold never starts.
-      }
-      if (d.axis !== 'x') return;
-
-      turnRef.current?.foldTo(localPoint(e));
-    };
-
-    const finish = (e: PointerEvent, cancelled: boolean) => {
-      const d = drag;
-      if (!d || e.pointerId !== d.id) return;
-      drag = null;
-      detach();
-      const turn = turnRef.current;
-      if (!turn) return;
-
-      if (d.axis !== 'x' || d.direction === null) {
-        logGesture(d.axis === 'y' ? 'vertical-scroll' : 'tap', e.clientX - d.startX, performance.now() - d.startT);
-        return; // never started a fold
-      }
-
-      const dx = d.lastX - d.startX;
-      const dt = Math.max(1, d.lastT - d.startT);
-      const vx = dx / dt; // px/ms, signed
-      const progress = turn.getProgress() ?? 0;
-      const dir = d.direction;
-
-      if (cancelled) {
-        turn.endFold(false);
-        logGesture('cancel', dx, dt);
-        return;
-      }
-
-      // Fast flick: commit if it points the right way and the turn is legal.
-      const flick = Math.abs(dx) > 40 && Math.abs(vx) > COMMIT_VELOCITY;
-      const towardCommit = dir === 'forward' ? vx < 0 : vx > 0;
-      const legal =
-        dir === 'forward' ? indexRef.current < totalRef.current - 1 : indexRef.current > 0;
-
-      const commit = legal && !cancelled && (flick ? towardCommit : progress >= COMMIT_PROGRESS || (towardCommit && Math.abs(vx) > COMMIT_VELOCITY));
-      turn.endFold(commit);
-      logGesture(`${commit ? 'commit' : 'spring-back'}-${dir}`, dx, dt, { progress: Math.round(progress), vx: Number(vx.toFixed(3)) });
-    };
-
-    const onUp = (e: PointerEvent) => finish(e, false);
-    const onCancel = (e: PointerEvent) => finish(e, true);
-
-    container.addEventListener('pointerdown', onDown);
-    container.addEventListener('touchmove', onTouchMove, { passive: false });
-    return () => {
-      container.removeEventListener('pointerdown', onDown);
-      container.removeEventListener('touchmove', onTouchMove);
-      detach();
-    };
-  }, []);
+  // --- Gesture layer (shared with the e2e harness): axis lock → fold/pull -
+  useReaderGestures({
+    containerRef,
+    turnRef,
+    indexRef,
+    totalRef,
+    indicatorRef,
+    onRefresh,
+  });
 
   if (total === 0) {
     return (
@@ -244,6 +116,9 @@ export function PageReader({ checkIns, startIndex = 0 }: PageReaderProps) {
           <BeerPage key={checkIn.id} checkIn={checkIn} />
         ))}
       </PageTurn>
+
+      {/* Custom pull-to-refresh indicator — slides in under the top edge. */}
+      <PullToRefreshIndicator ref={indicatorRef} />
 
       {/* Edge click zones — pointer devices only (hover-capable). On touch
           they'd cover the drag surface and swallow swipe-back gestures. */}

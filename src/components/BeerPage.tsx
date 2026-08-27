@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Maximize2, Minimize2, Plus, Share2, Trash2, Zap } from 'lucide-react';
 import { StarRating } from '@/components/StarRating';
 import { useZap } from '@/hooks/useZap';
+import { Comments } from '@/components/Comments';
 import { useCheers } from '@/hooks/useCheers';
 import { useDeleteCheckIn } from '@/hooks/useBeerbookFeed';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -164,6 +165,9 @@ export const BeerPage = memo(function BeerPage({ checkIn, interactive = true }: 
                 )}
                 <span>{metadata?.display_name || metadata?.name || `${checkIn.pubkey.slice(0, 8)}…`}</span>
               </Link>
+              <div className="ml-auto">
+                <Comments checkIn={checkIn} />
+              </div>
             </div>
           )}
         </div>

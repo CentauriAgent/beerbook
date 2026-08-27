@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useSeoMeta } from '@unhead/react';
 import { PageReader } from '@/components/PageReader';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useFollows } from '@/hooks/useUserSearch';
-import { decodeNip19, profilePath } from '@/lib/nip19links';
-import { cn } from '@/lib/utils';
+import { decodeNip19 } from '@/lib/nip19links';
 
 export default function Index() {
   const [searchParams] = useSearchParams();
@@ -26,7 +26,6 @@ export default function Index() {
   const { user } = useCurrentUser();
   const { data: follows, isLoading: followsLoading } = useFollows();
   const [global, setGlobal] = useState(false);
-  const navigate = useNavigate();
 
   // Home book = check-ins from people you follow (plus your own). 🌍 toggles the global book.
   const authorFilter = useMemo(() => {
@@ -36,6 +35,14 @@ export default function Index() {
 
   const { data: checkIns, isLoading, isError, refetch } = useBeerbookFeed(
     authorFilter ? { authors: authorFilter } : undefined,
+  );
+
+  const queryClient = useQueryClient();
+  // Pull-to-refresh: invalidate + await the feed refetch (prefix key covers
+  // both the crew and global variants). PageReader keeps the current page.
+  const refreshFeed = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['beerbook-feed'] }),
+    [queryClient],
   );
 
   const startIndex = checkIns && deepLinkPage
@@ -81,7 +88,7 @@ export default function Index() {
             </button>
           </div>
         ) : (
-          <PageReader checkIns={checkIns ?? []} startIndex={startIndex} />
+          <PageReader checkIns={checkIns ?? []} startIndex={startIndex} onRefresh={refreshFeed} />
         )}
       </main>
 
