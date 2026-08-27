@@ -1,18 +1,34 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { LoginArea } from '@/components/auth/LoginArea';
+import { StylePicker, type StylePickerValue } from '@/components/StylePicker';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useNostrPublish } from '@/hooks/useNostrPublish';
 import { useToast } from '@/hooks/useToast';
 import { useBeerBySlug } from '@/hooks/useBeerSearch';
+import { useUploadFile } from '@/hooks/useUploadFile';
 import { buildBeerEvent, BEER_KIND } from '@/lib/beers';
 import { beerAddrEncode, decodeNip19 } from '@/lib/nip19links';
+import { searchStyles, styleById } from '@/lib/beerStyles';
+
+/** Map an existing record's style/style_id to a StylePicker value. */
+function toStylePickerValue(style?: string, styleId?: string): StylePickerValue | null {
+  if (styleId && styleById(styleId)) {
+    return { id: styleId, name: style ?? styleById(styleId)!.name };
+  }
+  // Style text without a known slug — try one search hit as a best-effort match.
+  if (style) {
+    const hit = searchStyles(style, 1)[0];
+    if (hit && hit.style.catch_all === false) return { id: hit.style.id, name: hit.style.name };
+  }
+  return null;
+}
 
 /**
  * Edit a kind 31006 beer record you published.
@@ -26,6 +42,7 @@ export default function BeerEdit() {
   const { user } = useCurrentUser();
   const { toast } = useToast();
   const publish = useNostrPublish();
+  const upload = useUploadFile();
 
   const decoded = decodeNip19(ref);
   const naddr = decoded?.type === 'naddr' ? decoded : undefined;
@@ -35,7 +52,7 @@ export default function BeerEdit() {
 
   const [name, setName] = useState('');
   const [brewery, setBrewery] = useState('');
-  const [style, setStyle] = useState('');
+  const [styleValue, setStyleValue] = useState<StylePickerValue | null>(null);
   const [abv, setAbv] = useState('');
   const [ibu, setIbu] = useState('');
   const [description, setDescription] = useState('');
@@ -49,7 +66,7 @@ export default function BeerEdit() {
     if (record && !loaded) {
       setName(record.name);
       setBrewery(record.brewery);
-      setStyle(record.style ?? '');
+      setStyleValue(toStylePickerValue(record.style, record.style_id));
       setAbv(record.abv ?? '');
       setIbu(record.ibu ?? '');
       setDescription(record.description ?? '');
@@ -59,6 +76,27 @@ export default function BeerEdit() {
   }, [record, loaded]);
 
   const isOwner = !!record && !!user && record.pubkey === user.pubkey;
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const onPickFile = async (file: File) => {
+    try {
+      const tags = await upload.mutateAsync(file);
+      const url = tags.find(([name]) => name === 'url')?.[1];
+      if (!url) throw new Error('No image URL returned by the upload server');
+      setImage(url);
+      toast({ title: 'Image uploaded ✅' });
+    } catch (error) {
+      // Keep the form usable — the URL field stays as-is; manual entry still works.
+      toast({
+        title: 'Image upload failed',
+        description: error instanceof Error ? error.message : undefined,
+        variant: 'destructive',
+      });
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const onSave = async () => {
     if (!record || !isOwner) return;
@@ -84,8 +122,8 @@ export default function BeerEdit() {
       const template = buildBeerEvent({
         name: name.trim(),
         brewery: brewery.trim(),
-        style: style.trim() || undefined,
-        style_id: record.style_id, // preserved — not editable in the form
+        style: styleValue?.name,
+        style_id: styleValue?.id, // kept in sync with the picker, like Composer
         abv: abvNum != null ? abvNum.toFixed(1) : undefined,
         ibu: ibuNum != null ? String(ibuNum) : undefined,
         description: description.trim() || undefined,
@@ -142,8 +180,8 @@ export default function BeerEdit() {
               <Input id="beer-brewery" value={brewery} onChange={(e) => setBrewery(e.target.value)} placeholder="e.g. Russian River" />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="beer-style">Style</Label>
-              <Input id="beer-style" value={style} onChange={(e) => setStyle(e.target.value)} placeholder="e.g. American IPA" />
+              <Label>Style</Label>
+              <StylePicker value={styleValue} onChange={setStyleValue} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -157,7 +195,29 @@ export default function BeerEdit() {
             </div>
             <div className="space-y-1">
               <Label htmlFor="beer-image">Image URL</Label>
-              <Input id="beer-image" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" />
+              <div className="flex gap-2">
+                <Input id="beer-image" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://…" className="flex-1" />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void onPickFile(file);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={upload.isPending}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-50"
+                >
+                  {upload.isPending ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                  {upload.isPending ? 'Uploading…' : 'Upload'}
+                </Button>
+              </div>
               {image.trim() && (
                 <img src={image} alt="Beer" className="mt-2 h-32 w-full rounded-xl border border-amber-200 object-cover" />
               )}
