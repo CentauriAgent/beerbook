@@ -6,9 +6,7 @@ import { PageReader } from '@/components/PageReader';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useFollows } from '@/hooks/useUserSearch';
-import { LoginArea } from '@/components/auth/LoginArea';
 import { decodeNip19 } from '@/lib/nip19links';
-import wordmarkUrl from '@/assets/logo-wordmark.jpg';
 
 export default function Index() {
   const [searchParams] = useSearchParams();
@@ -118,14 +116,10 @@ export default function Index() {
               title="Refresh feed"
               className="font-serif text-xl font-bold text-amber-100 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] transition hover:opacity-80 active:scale-95"
             >
-              <img src={wordmarkUrl} alt="Beerbook" width={1264} height={848} className="h-10 w-auto max-w-[180px] object-contain" style={{ imageRendering: 'auto' }} />
+              Beerbook
             </button>
           </span>
-          {/* Login / account switcher — always visible (even on an empty
-              book) so logged-out visitors can join from the home page. */}
-          <span className="pointer-events-auto pr-1">
-            <LoginArea className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />
-          </span>
+          <span />
         </div>
       </header>
     </div>
