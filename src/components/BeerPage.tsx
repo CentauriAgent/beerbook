@@ -12,7 +12,6 @@ import type { BeerCheckIn } from '@/lib/beerbook';
 import { beerPath, profilePath, readerPath } from '@/lib/nip19links';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx';
-import { LoginArea } from '@/components/auth/LoginArea';
 import { useLoggedInAccounts } from '@/hooks/useLoggedInAccounts';
 import { useNostrLogin } from '@nostrify/react/login';
 import { LogOut, Menu } from 'lucide-react';
@@ -175,8 +174,7 @@ export const BeerPage = memo(function BeerPage({ checkIn, interactive = true }: 
 
       {/* Top-right FAB: logged-in user's avatar (tap to expand actions);
           logged-out users get a plain Join button — browse only. */}
-      {interactive && (
-        user ? (
+      {interactive && user && (
         <div className="absolute right-3 top-[calc(0.2rem+env(safe-area-inset-top))] z-50 flex flex-col items-end gap-3">
           <button
             type="button"
@@ -316,11 +314,6 @@ export const BeerPage = memo(function BeerPage({ checkIn, interactive = true }: 
             </div>
           )}
         </div>
-        ) : (
-          <div className="absolute right-3 top-[calc(0.45rem+env(safe-area-inset-top))] z-50">
-            <LoginArea className="drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" />
-          </div>
-        )
       )}
     </div>
   );
