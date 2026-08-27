@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSeoMeta } from '@unhead/react';
 import { ArrowLeft, Share2 } from 'lucide-react';
 import { LoginArea } from '@/components/auth/LoginArea';
+import { PullToRefresh } from '@/components/PullToRefresh';
 import { StarRating } from '@/components/StarRating';
 import { useBeerBySlug } from '@/hooks/useBeerSearch';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
@@ -22,6 +24,12 @@ export default function BeerDetail({ naddr: propNaddr }: { naddr?: Extract<Decod
   const eventId = /^[0-9a-f]{64}$/.test(ref) ? ref : undefined;
   const { data: record, isLoading: recordLoading } = useBeerBySlug(slug, naddr?.pubkey);
   const { data: checkIns, isLoading: feedLoading } = useBeerbookFeed();
+
+  const queryClient = useQueryClient();
+  const refresh = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ['beerbook-feed'] }),
+    [queryClient],
+  );
 
   useSeoMeta({
     title: record ? `${record.name} 🍺 Beerbook` : 'Beer 🍺 Beerbook',
@@ -60,6 +68,7 @@ export default function BeerDetail({ naddr: propNaddr }: { naddr?: Extract<Decod
   };
 
   return (
+    <PullToRefresh onRefresh={refresh}>
     <div className="min-h-dvh bg-amber-50 pb-10">
       <header className="sticky top-0 z-20 flex items-center justify-between border-b border-amber-200 bg-amber-100/90 px-4 py-3 backdrop-blur">
         <button type="button" onClick={() => navigate(-1)} className="flex items-center gap-1 text-amber-900">
@@ -128,6 +137,7 @@ export default function BeerDetail({ naddr: propNaddr }: { naddr?: Extract<Decod
         </div>
       </div>
     </div>
+    </PullToRefresh>
   );
 }
 

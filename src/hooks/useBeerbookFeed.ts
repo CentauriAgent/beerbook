@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNostr } from '@nostrify/react';
+import { useNostr } from '@/hooks/useNostr';
 import type { NostrFilter } from '@nostrify/nostrify';
 import { NSchema } from '@nostrify/nostrify';
 import { parseCheckIn, type BeerCheckIn } from '@/lib/beerbook';
@@ -15,7 +15,21 @@ export function useBeerbookFeed(opts?: { authors?: string[] }) {
     queryFn: async ({ signal }) => {
       const filter: NostrFilter = { kinds: [1], '#t': ['beerbook'], limit: 100 };
       if (opts?.authors) filter.authors = opts.authors;
-      const events = (await nostr.query([filter], { signal }))
+
+      let events = await nostr.query([filter], { signal });
+
+      // Resilience: if the pooled query resolved empty (a hung/empty read
+      // relay can make NPool abort before the good relay answers), retry once
+      // directly against our known-good primary read relay.
+      if (events.length === 0 && !signal.aborted) {
+        try {
+          events = await nostr.query([filter], { signal, relays: ['wss://relay.ditto.pub/'] });
+        } catch {
+          // keep the (empty) pooled result — render the empty state
+        }
+      }
+
+      events = events
         .filter((e) => NSchema.id().safeParse(e.id).success);
 
       // Fetch deletion events (kind 5) from the same authors and drop deleted check-ins.
