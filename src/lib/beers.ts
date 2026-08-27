@@ -69,8 +69,14 @@ export function buildBeerEvent(input: {
   description?: string;
   image?: string;
   source?: string;
+  /**
+   * Explicit d tag. REQUIRED when editing an existing record: the d tag of a
+   * parameterized replaceable event is its identity and must never change,
+   * even if name/brewery are edited (they would derive a different slug).
+   */
+  d?: string;
 }): { kind: number; content: string; tags: string[][] } {
-  const d = beerSlug(input.name, input.brewery);
+  const d = input.d ?? beerSlug(input.name, input.brewery);
   const tags: string[][] = [
     ['d', d],
     ['name', input.name],

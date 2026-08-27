@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSeoMeta } from '@unhead/react';
-import { ArrowLeft, Share2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Share2 } from 'lucide-react';
 import { LoginArea } from '@/components/auth/LoginArea';
 import { PullToRefresh } from '@/components/PullToRefresh';
 import { StarRating } from '@/components/StarRating';
@@ -10,12 +10,14 @@ import { useBeerBySlug } from '@/hooks/useBeerSearch';
 import { useBeerbookFeed } from '@/hooks/useBeerbookFeed';
 import { useAuthor } from '@/hooks/useAuthor';
 import { beerAddrEncode, decodeNip19, readerPath, type DecodedNip19 } from '@/lib/nip19links';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 /** Beer detail: the kind 31006 record + every check-in of this beer. */
 export default function BeerDetail({ naddr: propNaddr }: { naddr?: Extract<DecodedNip19, { type: 'naddr' }> } = {}) {
   const { ref = '' } = useParams<{ ref: string }>();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const { user } = useCurrentUser();
 
   // ref is an naddr1… (NIP-19 address, preferred) — legacy d-slug or 31006 event id still accepted
   const decoded = decodeNip19(ref);
@@ -97,8 +99,23 @@ export default function BeerDetail({ naddr: propNaddr }: { naddr?: Extract<Decod
               <img src={record.image} alt={record.name} className="h-48 w-full object-cover" />
             )}
             <div className="p-4">
-              <h2 className="font-serif text-2xl font-bold text-amber-950">{record?.name ?? 'Unknown beer'}</h2>
-              {record?.brewery && <p className="italic text-amber-800">{record.brewery}</p>}
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="font-serif text-2xl font-bold text-amber-950">{record?.name ?? 'Unknown beer'}</h2>
+                {record?.brewery && <p className="italic text-amber-800">{record.brewery}</p>}
+              </div>
+              {/* Ownership gate: only the publisher can edit this 31006 record */}
+              {record && user && record.pubkey === user.pubkey && (
+                <Link
+                  to={`/beer/${beerAddrEncode(record.d, record.pubkey)}/edit`}
+                  title="Edit this beer record"
+                  aria-label="Edit this beer record"
+                  className="flex shrink-0 items-center gap-1 rounded-full border border-amber-300 px-2.5 py-1 text-xs text-amber-900 hover:bg-amber-100 active:scale-90"
+                >
+                  <Pencil size={14} /> Edit
+                </Link>
+              )}
+            </div>
               <div className="mt-2 flex flex-wrap gap-2 text-sm text-amber-900">
                 {record?.style && <span className="rounded-full bg-amber-100 px-2.5 py-0.5">{record.style}</span>}
                 {record?.abv && <span className="rounded-full bg-amber-100 px-2.5 py-0.5">{record.abv}% ABV</span>}
