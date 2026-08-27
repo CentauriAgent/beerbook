@@ -1,6 +1,6 @@
 import { memo, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Plus, Share2, Trash2, Zap } from 'lucide-react';
+import { Maximize2, Minimize2, Pencil, Plus, Share2, Trash2, Zap } from 'lucide-react';
 import { StarRating } from '@/components/StarRating';
 import { useZap } from '@/hooks/useZap';
 import { Comments } from '@/components/Comments';
@@ -296,6 +296,23 @@ export const BeerPage = memo(function BeerPage({ checkIn, interactive = true }: 
               >
                 <LogOut size={22} />
               </button>
+
+              {/* Edit (own pages only) */}
+              {isMine && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    navigate('/new', { state: { edit: checkIn } });
+                  }}
+                  aria-label="Edit this page"
+                  title="Edit"
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition hover:scale-110 hover:bg-amber-600/80 active:scale-90"
+                >
+                  <Pencil size={22} />
+                </button>
+              )}
 
               {/* Delete (own pages only) */}
               {isMine && (

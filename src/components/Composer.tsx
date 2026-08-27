@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { nip19 } from 'nostr-tools';
 import { Camera, Crosshair, MapPin, Plus, Search, UserPlus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { RatingInput } from '@/components/RatingInput';
 import { BeerPage } from '@/components/BeerPage';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useNostrPublish } from '@/hooks/useNostrPublish';
+import { useDeleteCheckIn } from '@/hooks/useBeerbookFeed';
 import { useUploadFile } from '@/hooks/useUploadFile';
 import { useToast } from '@/hooks/useToast';
 import { useBeerSearch } from '@/hooks/useBeerSearch';
@@ -38,34 +39,49 @@ interface SelectedBeer {
   name: string;
   brewery: string;
   beerRef?: string;
+  beerAuthor?: string; // preserved in edit mode so naddr links keep working
 }
 
 export function Composer() {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const { user } = useCurrentUser();
   const { toast } = useToast();
   const publish = useNostrPublish();
   const upload = useUploadFile();
+  const del = useDeleteCheckIn();
 
-  const [beer, setBeer] = useState<SelectedBeer>({ name: '', brewery: '' });
+  // Edit mode: BeerPage passes the check-in to edit via router state.
+  // Editing publishes a NEW event with an ["e", <original-id>, "", "edit"]
+  // tag (Nostr events are immutable) and then offers to NIP-09-delete the
+  // original so the feed doesn't show both versions.
+  const editing = (routerLocation.state as { edit?: BeerCheckIn } | null)?.edit;
+
+  const [beer, setBeer] = useState<SelectedBeer>(() => editing
+    ? { name: editing.beer, brewery: editing.brewery, beerRef: editing.beerRef, beerAuthor: editing.beerAuthor }
+    : { name: '', brewery: '' });
   const [beerQuery, setBeerQuery] = useState('');
   const [showBeerForm, setShowBeerForm] = useState(false);
   const [newBeer, setNewBeer] = useState({ name: '', brewery: '', abv: '', ibu: '' });
   const [newStyle, setNewStyle] = useState<StylePickerValue | null>(null);
-  const [rating, setRating] = useState(0);
-  const [description, setDescription] = useState('');
-  const [flavors, setFlavors] = useState<string[]>([]);
-  const [serving, setServing] = useState<string>('');
-  const [location, setLocation] = useState('');
+  const [rating, setRating] = useState(editing?.rating ?? 0);
+  const [description, setDescription] = useState(editing?.description ?? '');
+  const [flavors, setFlavors] = useState<string[]>(editing?.flavors ?? []);
+  const [serving, setServing] = useState<string>(editing?.serving ?? '');
+  const [location, setLocation] = useState(editing?.location ?? '');
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [placeResults, setPlaceResults] = useState<Place[]>([]);
   const [placeQuery, setPlaceQuery] = useState('');
   const [showPlaces, setShowPlaces] = useState(false);
   const [geoBusy, setGeoBusy] = useState(false);
   const debouncedPlaceQuery = useDebounced(placeQuery, 600);
-  const [tagged, setTagged] = useState<string[]>([]);
+  const [tagged, setTagged] = useState<string[]>(editing?.taggedUsers ?? []);
   const [buddyQuery, setBuddyQuery] = useState('');
-  const [imetaTag, setImetaTag] = useState<string[] | null>(null); // full imeta tag array
+  // full imeta tag array; in edit mode reuse the existing photo URL so the
+  // photo carries over unchanged unless the user uploads a replacement
+  const [imetaTag, setImetaTag] = useState<string[] | null>(
+    editing?.image ? ['imeta', `url ${editing.image}`] : null,
+  );
   const [photoError, setPhotoError] = useState<string | null>(null);
 
   const debouncedBeerQuery = useDebounced(beerQuery, 350);
@@ -295,11 +311,28 @@ export function Composer() {
       imageTags: imetaTag ? [imetaTag] : [],
       taggedUsers: tagged,
       beerRef,
-      beerAuthor: beer.record?.pubkey,
+      beerAuthor: beerAuthor ?? beer.beerAuthor,
     });
     try {
-      await publish.mutateAsync({ kind: 1, content: template.content, tags: template.tags });
-      toast({ title: '📖 Page published!', description: `Cheers to ${beerName}!` });
+      // Edit mode: tag the original with an "edit" marker so readers can
+      // prefer the newer version (Nostr events themselves are immutable).
+      const tags = editing
+        ? [...template.tags, ['e', editing.id, '', 'edit'] as string[]]
+        : template.tags;
+      await publish.mutateAsync({ kind: 1, content: template.content, tags });
+      if (editing) {
+        toast({ title: '📖 Page updated!', description: `Cheers to ${beerName}!` });
+        // NIP-09 delete the original so the feed doesn't show both versions.
+        if (window.confirm('Remove the original version from your Beerbook?')) {
+          try {
+            await del.mutateAsync({ id: editing.id });
+          } catch {
+            toast({ title: "Couldn't remove the original", description: 'Both versions may appear until relays sync the deletion.', variant: 'destructive' });
+          }
+        }
+      } else {
+        toast({ title: '📖 Page published!', description: `Cheers to ${beerName}!` });
+      }
       navigate('/');
     } catch (error) {
       toast({
@@ -690,7 +723,7 @@ export function Composer() {
           disabled={!canPublish || publish.isPending}
           className="w-full bg-amber-600 py-6 text-lg font-bold text-amber-50 hover:bg-amber-700"
         >
-          {publish.isPending ? 'Publishing…' : '📖 Write This Page'}
+          {publish.isPending ? 'Publishing…' : editing ? '📖 Update This Page' : '📖 Write This Page'}
         </Button>
       </div>
     </div>

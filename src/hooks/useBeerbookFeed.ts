@@ -32,6 +32,17 @@ export function useBeerbookFeed(opts?: { authors?: string[] }) {
       events = events
         .filter((e) => NSchema.id().safeParse(e.id).success);
 
+      // Edited check-ins: an edit publishes a NEW event with an
+      // ["e", <original-id>, "", "edit"] tag. Prefer the edit and drop the
+      // original it replaces so the feed doesn't show both versions.
+      const editedOriginals = new Set<string>();
+      for (const e of events) {
+        for (const [name, value, , marker] of e.tags) {
+          if (name === 'e' && value && marker === 'edit') editedOriginals.add(value);
+        }
+      }
+      events = events.filter((e) => !editedOriginals.has(e.id));
+
       // Fetch deletion events (kind 5) from the same authors and drop deleted check-ins.
       const authorSet = new Set(events.map((e) => e.pubkey));
       const deleted = new Set<string>();
